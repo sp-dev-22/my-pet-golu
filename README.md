@@ -41,18 +41,28 @@ and let him practise with you out loud.
   (long-press to move) or tap **Manage** and the helper model proposes folders
   for everything unfiled. Search by title, filter by kind and folder. Tap an
   item to view it; tap "Practice" on a quiz, flashcard set, one-liner set or
-  question set to start Practice mode with it.
+  question set to start Practice mode with it. Export / Import the whole
+  Library as JSON, PDF or ZIP.
 - **Files (your own database)** - folders and sub-folders for your PDFs.
   Upload with the file picker into the folder you are in (or pick a folder
   when uploading from the top level); files are copied into the app's private
   storage so they stay put. Search finds files across all folders.
+  Export / Import folders and files as JSON (list only), PDF or ZIP
+  (ZIP includes the actual files).
 - **Skills** - custom system prompts. Built in: **Quiz Maker** (returns a JSON
   quiz the app can play), **One Liner Maker** (crisp revision lines),
   **Questions Asker** (practice questions with answers and explanations).
-  Make your own skills too and pick several per chat.
+  Make your own skills too and pick several per chat. Export / Import skills
+  as JSON, PDF or ZIP.
 - **Memory** - facts Golu remembers about you, now one tap from Home. When
   enabled, they are added to every chat's system prompt. "Suggest from chats"
-  uses the background model to propose new facts.
+  uses the background model to propose new facts. Export / Import memories
+  as JSON, PDF or ZIP.
+- **Backup & Restore** - in Settings: **Backup** writes one ZIP file with
+  everything (chats, library, files, skills, memory, settings) - except your
+  Gemini API key, which is never exported. **Restore** validates the backup
+  first, then replaces all local data with it and restarts the app; enter
+  your API key again afterwards.
 - **Settings** - your Gemini API key (entered in the app, stored only on your
   device, never in this repo), four model slots (agent, practice, talk, helper)
   picked from your saved model list (presets: gemini-3.5-flash-lite,
