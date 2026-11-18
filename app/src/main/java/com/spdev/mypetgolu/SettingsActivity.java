@@ -2,7 +2,6 @@ package com.spdev.mypetgolu;
 
 import android.app.Activity;
 import android.app.TimePickerDialog;
-import android.content.Intent;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.view.Gravity;
@@ -18,8 +17,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Settings: API key, models, voice languages, quiz timer, conversation
- * toggles, memory, study reminder and data wipe. All rows rebuild on resume.
+ * Settings: API key, models, voice languages, quiz timer, Talk
+ * toggles, study reminder and data wipe. All rows rebuild on resume.
  */
 public class SettingsActivity extends Activity {
 
@@ -76,25 +75,25 @@ public class SettingsActivity extends Activity {
 
         // ---------------------------------------------------------------- models
         body.addView(Ui.section(this, "Models"));
-        body.addView(row("AI agent model", Prefs.getAgentModel(this), new View.OnClickListener() {
+        body.addView(row("Agent model", Prefs.getAgentModel(this), new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 pickModel(0);
             }
         }));
-        body.addView(row("Asking mode model", Prefs.getAskingModel(this), new View.OnClickListener() {
+        body.addView(row("Quiz model", Prefs.getAskingModel(this), new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 pickModel(1);
             }
         }));
-        body.addView(row("Conversation model", Prefs.getConversationModel(this), new View.OnClickListener() {
+        body.addView(row("Talk model", Prefs.getConversationModel(this), new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 pickModel(2);
             }
         }));
-        body.addView(row("Background work model", Prefs.getBackgroundModel(this), new View.OnClickListener() {
+        body.addView(row("Helper model", Prefs.getBackgroundModel(this), new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 pickModel(3);
@@ -110,7 +109,7 @@ public class SettingsActivity extends Activity {
         addModelBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Ui.input(SettingsActivity.this, "Add model", "Model name, e.g. gemini-2.5-flash",
+                Ui.input(SettingsActivity.this, "Add model", "Model name, e.g. gemini-3.6-flash",
                         "", new Ui.InputCallback() {
                             @Override
                             public void onInput(String text) {
@@ -140,7 +139,7 @@ public class SettingsActivity extends Activity {
 
         // ------------------------------------------------------------------ quiz
         body.addView(Ui.section(this, "Quiz"));
-        body.addView(row("Answer time (seconds)", String.valueOf(Prefs.getQuizTimeSec(this)),
+        body.addView(row("Answer time", String.valueOf(Prefs.getQuizTimeSec(this)),
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
@@ -165,8 +164,8 @@ public class SettingsActivity extends Activity {
                     }
                 }));
 
-        // ----------------------------------------------------------- conversation
-        body.addView(Ui.section(this, "Conversation"));
+        // ------------------------------------------------------------------ talk
+        body.addView(Ui.section(this, "Talk"));
         body.addView(row("Mic", onOff(Prefs.isConvMicOn(this)), new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -188,25 +187,6 @@ public class SettingsActivity extends Activity {
                 refresh();
             }
         }));
-
-        // ---------------------------------------------------------------- memory
-        body.addView(Ui.section(this, "Memory"));
-        body.addView(row("Memory", onOff(Prefs.isMemoryEnabled(this)), new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Prefs.setMemoryEnabled(SettingsActivity.this,
-                        !Prefs.isMemoryEnabled(SettingsActivity.this));
-                refresh();
-            }
-        }));
-        TextView openMemoryBtn = Ui.button(this, "Open Memory", Ui.BLUE);
-        openMemoryBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startActivity(new Intent(SettingsActivity.this, MemoryActivity.class));
-            }
-        });
-        body.addView(withBottomMargin(openMemoryBtn));
 
         // -------------------------------------------------------- study reminder
         body.addView(Ui.section(this, "Study reminder"));
@@ -271,7 +251,7 @@ public class SettingsActivity extends Activity {
 
         // ----------------------------------------------------------------- about
         body.addView(Ui.section(this, "About"));
-        body.addView(note("Golu Study 3.0 - your study buddy. Chats, library, files and memory "
+        body.addView(note("Golu Study 3.1 - your study buddy. Chats, library, files and memory "
                 + "stay on your device; only your messages and attached files go to Gemini."));
     }
 

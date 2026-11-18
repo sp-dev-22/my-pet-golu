@@ -18,7 +18,7 @@ import java.util.List;
 public class AppDb extends SQLiteOpenHelper {
 
     private static final String DB = "golu_app.db";
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     public static final String CHAT_AGENT = "agent";
     public static final String CHAT_CONVERSATION = "conversation";
@@ -33,8 +33,26 @@ public class AppDb extends SQLiteOpenHelper {
         public String kind;
         public String model;
         public long skillId;
+        /** comma-separated skill ids (v3.1: a chat can have several skills) */
+        public String skillIds;
         public long created;
         public long updated;
+
+        /** The chat's skill ids as a list (empty = default skill). */
+        public List<Long> skillIdList() {
+            List<Long> out = new ArrayList<>();
+            if (skillIds != null && !skillIds.trim().isEmpty()) {
+                for (String s : skillIds.split(",")) {
+                    try {
+                        long v = Long.parseLong(s.trim());
+                        if (v > 0) out.add(v);
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+            if (out.isEmpty() && skillId > 0) out.add(skillId);
+            return out;
+        }
     }
 
     public static class Msg {
@@ -81,6 +99,7 @@ public class AppDb extends SQLiteOpenHelper {
                 + "kind TEXT NOT NULL,"
                 + "model TEXT,"
                 + "skill_id INTEGER NOT NULL DEFAULT 0,"
+                + "skill_ids TEXT,"
                 + "created INTEGER NOT NULL,"
                 + "updated INTEGER NOT NULL)");
         db.execSQL("CREATE TABLE messages ("
@@ -114,18 +133,44 @@ public class AppDb extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // version 1: nothing to migrate yet
+        if (oldVersion < 2) {
+            // v3.1: chats can hold several skills (comma-separated ids)
+            db.execSQL("ALTER TABLE chats ADD COLUMN skill_ids TEXT");
+            db.execSQL("UPDATE chats SET skill_ids = CAST(skill_id AS TEXT) "
+                    + "WHERE skill_id > 0");
+        }
     }
 
     // ----------------------------------------------------------------- chats
 
+    /** Joins skill ids into the comma-separated form stored in the chats table. */
+    public static String joinSkillIds(List<Long> ids) {
+        StringBuilder b = new StringBuilder();
+        if (ids != null) {
+            for (Long id : ids) {
+                if (id == null || id <= 0) continue;
+                if (b.length() > 0) b.append(',');
+                b.append(id.longValue());
+            }
+        }
+        return b.toString();
+    }
+
     public long createChat(String title, String kind, String model, long skillId) {
+        List<Long> ids = new ArrayList<>();
+        if (skillId > 0) ids.add(skillId);
+        return createChat(title, kind, model, ids);
+    }
+
+    public long createChat(String title, String kind, String model, List<Long> skillIds) {
         long now = System.currentTimeMillis();
         ContentValues v = new ContentValues();
         v.put("title", title);
         v.put("kind", kind);
         v.put("model", model);
-        v.put("skill_id", skillId);
+        long first = (skillIds != null && !skillIds.isEmpty()) ? skillIds.get(0) : 0;
+        v.put("skill_id", first);
+        v.put("skill_ids", joinSkillIds(skillIds));
         v.put("created", now);
         v.put("updated", now);
         return getWritableDatabase().insert("chats", null, v);
@@ -186,9 +231,11 @@ public class AppDb extends SQLiteOpenHelper {
         getWritableDatabase().update("chats", v, "id=?", new String[]{String.valueOf(id)});
     }
 
-    public void updateChatSkill(long id, long skillId) {
+    public void updateChatSkills(long id, List<Long> skillIds) {
         ContentValues v = new ContentValues();
-        v.put("skill_id", skillId);
+        long first = (skillIds != null && !skillIds.isEmpty()) ? skillIds.get(0) : 0;
+        v.put("skill_id", first);
+        v.put("skill_ids", joinSkillIds(skillIds));
         getWritableDatabase().update("chats", v, "id=?", new String[]{String.valueOf(id)});
     }
 
@@ -212,6 +259,8 @@ public class AppDb extends SQLiteOpenHelper {
         ch.kind = c.getString(c.getColumnIndexOrThrow("kind"));
         ch.model = c.getString(c.getColumnIndexOrThrow("model"));
         ch.skillId = c.getLong(c.getColumnIndexOrThrow("skill_id"));
+        int si = c.getColumnIndex("skill_ids");
+        ch.skillIds = si >= 0 ? c.getString(si) : null;
         ch.created = c.getLong(c.getColumnIndexOrThrow("created"));
         ch.updated = c.getLong(c.getColumnIndexOrThrow("updated"));
         return ch;
@@ -243,11 +292,22 @@ public class AppDb extends SQLiteOpenHelper {
         return out;
     }
 
-    /** Last N messages, oldest-first (for prompt history). */
+    /** Last N messages, oldest-first (for prompt history). Uses LIMIT - it
+     *  no longer loads the whole chat into memory first. */
     public List<Msg> lastMessages(long chatId, int n) {
-        List<Msg> all = listMessages(chatId);
-        if (all.size() <= n) return all;
-        return new ArrayList<>(all.subList(all.size() - n, all.size()));
+        List<Msg> out = new ArrayList<>();
+        Cursor c = getReadableDatabase().query("messages", null, "chat_id=?",
+                new String[]{String.valueOf(chatId)}, null, null, "id DESC",
+                String.valueOf(Math.max(1, n)));
+        try {
+            while (c.moveToNext()) out.add(msgFromCursor(c));
+        } finally {
+            c.close();
+        }
+        // query returned newest-first; flip back to oldest-first
+        List<Msg> rev = new ArrayList<>(out.size());
+        for (int i = out.size() - 1; i >= 0; i--) rev.add(out.get(i));
+        return rev;
     }
 
     public Msg getMessage(long id) {
@@ -333,6 +393,18 @@ public class AppDb extends SQLiteOpenHelper {
         } finally {
             c.close();
         }
+    }
+
+    /** Skills for the given ids, in the order the ids were passed. */
+    public List<Skill> getSkillsByIds(List<Long> ids) {
+        List<Skill> out = new ArrayList<>();
+        if (ids == null) return out;
+        for (Long id : ids) {
+            if (id == null) continue;
+            Skill s = getSkill(id);
+            if (s != null) out.add(s);
+        }
+        return out;
     }
 
     public List<Skill> listSkills() {

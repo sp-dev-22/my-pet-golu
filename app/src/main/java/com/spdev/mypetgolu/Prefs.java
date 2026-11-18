@@ -18,12 +18,23 @@ public final class Prefs {
 
     private static final String NAME = "golu_study";
 
+    /** Current preset models (v3.1). Old presets were removed (see OLD_PRESETS). */
     public static final String[] DEFAULT_MODELS = {
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.8-flash"
+    };
+
+    /** Presets from v3.0, dropped in v3.1 - migrated away on existing installs. */
+    private static final String[] OLD_PRESETS = {
             "gemini-2.5-flash",
             "gemini-2.5-flash-lite",
-            "gemini-3.5-flash",
-            "gemini-3.5-flash-lite"
+            "gemini-3.5-flash"
     };
+
+    private static final String K_MODELS_MIGRATED = "models_migrated_v31";
+    private static final String K_SKILLS_SEEDED = "skills_seeded";
+    private static final String K_ASKING_TTS = "asking_tts";
 
     private static final String K_API_KEY = "api_key";
     private static final String K_MODEL_AGENT = "model_agent";
@@ -67,16 +78,66 @@ public final class Prefs {
 
     // ----------------------------------------------------------------- models
 
-    /** Saved model names (defaults + any custom names the user added). */
+    /**
+     * One-time migration (v3.1): drops the old v3.0 presets from the saved
+     * list, makes sure the three new presets are present, keeps any other
+     * user-added models, and remaps the four model slots off old presets.
+     * Fresh installs are seeded with DEFAULT_MODELS once.
+     */
+    private static void migrateModelsIfNeeded(Context c) {
+        SharedPreferences p = sp(c);
+        if (p.getBoolean(K_MODELS_MIGRATED, false)) return;
+        LinkedHashSet<String> saved = new LinkedHashSet<>();
+        String raw = p.getString(K_MODELS_SAVED, null);
+        if (raw != null) {
+            for (String s : raw.split("\n")) {
+                s = s.trim();
+                if (!s.isEmpty()) saved.add(s);
+            }
+        }
+        for (String old : OLD_PRESETS) saved.remove(old);
+        for (String def : DEFAULT_MODELS) saved.add(def);
+        if (saved.isEmpty()) saved.addAll(Arrays.asList(DEFAULT_MODELS));
+        saveModels(c, saved);
+        remapSlot(c, K_MODEL_AGENT);
+        remapSlot(c, K_MODEL_ASKING);
+        remapSlot(c, K_MODEL_CONVO);
+        remapSlot(c, K_MODEL_BG);
+        p.edit().putBoolean(K_MODELS_MIGRATED, true).apply();
+    }
+
+    /** Maps an old v3.0 preset to its v3.1 replacement (or returns it unchanged). */
+    public static String mapOldModel(String model) {
+        if ("gemini-2.5-flash".equals(model) || "gemini-3.5-flash".equals(model)) {
+            return "gemini-3.6-flash";
+        }
+        if ("gemini-2.5-flash-lite".equals(model)) return "gemini-3.5-flash-lite";
+        return model;
+    }
+
+    private static void remapSlot(Context c, String key) {
+        String v = sp(c).getString(key, null);
+        if (v != null && !mapOldModel(v).equals(v)) {
+            sp(c).edit().putString(key, mapOldModel(v)).apply();
+        }
+    }
+
+    /**
+     * Saved model names. The defaults are seeded ONCE (first run / migration);
+     * after that the stored list is the truth, so deleting a model in
+     * Settings really deletes it.
+     */
     public static List<String> getSavedModels(Context c) {
+        migrateModelsIfNeeded(c);
         String raw = sp(c).getString(K_MODELS_SAVED, null);
-        LinkedHashSet<String> out = new LinkedHashSet<>(Arrays.asList(DEFAULT_MODELS));
+        LinkedHashSet<String> out = new LinkedHashSet<>();
         if (raw != null) {
             for (String s : raw.split("\n")) {
                 s = s.trim();
                 if (!s.isEmpty()) out.add(s);
             }
         }
+        if (out.isEmpty()) out.addAll(Arrays.asList(DEFAULT_MODELS));
         return new ArrayList<>(out);
     }
 
@@ -106,7 +167,8 @@ public final class Prefs {
     }
 
     public static String getAgentModel(Context c) {
-        return sp(c).getString(K_MODEL_AGENT, DEFAULT_MODELS[0]);
+        migrateModelsIfNeeded(c);
+        return mapOldModel(sp(c).getString(K_MODEL_AGENT, "gemini-3.6-flash"));
     }
 
     public static void setAgentModel(Context c, String m) {
@@ -114,7 +176,8 @@ public final class Prefs {
     }
 
     public static String getAskingModel(Context c) {
-        return sp(c).getString(K_MODEL_ASKING, DEFAULT_MODELS[0]);
+        migrateModelsIfNeeded(c);
+        return mapOldModel(sp(c).getString(K_MODEL_ASKING, "gemini-3.6-flash"));
     }
 
     public static void setAskingModel(Context c, String m) {
@@ -122,7 +185,8 @@ public final class Prefs {
     }
 
     public static String getConversationModel(Context c) {
-        return sp(c).getString(K_MODEL_CONVO, "gemini-2.5-flash-lite");
+        migrateModelsIfNeeded(c);
+        return mapOldModel(sp(c).getString(K_MODEL_CONVO, "gemini-3.5-flash-lite"));
     }
 
     public static void setConversationModel(Context c, String m) {
@@ -130,7 +194,8 @@ public final class Prefs {
     }
 
     public static String getBackgroundModel(Context c) {
-        return sp(c).getString(K_MODEL_BG, "gemini-2.5-flash-lite");
+        migrateModelsIfNeeded(c);
+        return mapOldModel(sp(c).getString(K_MODEL_BG, "gemini-3.5-flash-lite"));
     }
 
     public static void setBackgroundModel(Context c, String m) {
@@ -189,6 +254,24 @@ public final class Prefs {
     }
 
     // ------------------------------------------------- conversation toggles
+
+    /** Built-in skills were seeded once (avoids re-checking the DB every launch). */
+    public static boolean isSkillsSeeded(Context c) {
+        return sp(c).getBoolean(K_SKILLS_SEEDED, false);
+    }
+
+    public static void setSkillsSeeded(Context c) {
+        sp(c).edit().putBoolean(K_SKILLS_SEEDED, true).apply();
+    }
+
+    /** Voice (TTS) on/off in Asking mode. */
+    public static boolean isAskingTtsOn(Context c) {
+        return sp(c).getBoolean(K_ASKING_TTS, true);
+    }
+
+    public static void setAskingTtsOn(Context c, boolean on) {
+        sp(c).edit().putBoolean(K_ASKING_TTS, on).apply();
+    }
 
     public static boolean isConvMicOn(Context c) {
         return sp(c).getBoolean(K_CONV_MIC, true);

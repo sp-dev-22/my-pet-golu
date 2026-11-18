@@ -6,15 +6,19 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -29,12 +33,24 @@ public class ChatListActivity extends Activity {
     private List<AppDb.Chat> chats;
     private ListView listView;
     private ChatAdapter adapter;
+    private EditText searchBox;
+    private boolean destroyed = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         db = new AppDb(this);
-        Skills.seed(db);
+        // seed the built-in skills once, off the UI thread
+        if (!Prefs.isSkillsSeeded(this)) {
+            final AppDb seedDb = db;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    Skills.seed(seedDb);
+                    Prefs.setSkillsSeeded(ChatListActivity.this);
+                }
+            }).start();
+        }
 
         LinearLayout root = Ui.column(this);
 
@@ -54,6 +70,30 @@ public class ChatListActivity extends Activity {
         });
         bar.addView(newBtn, Ui.wrapWrap());
         root.addView(bar, Ui.matchWrap());
+
+        // search field
+        searchBox = Ui.searchBox(this);
+        LinearLayout.LayoutParams sbLp = Ui.matchWrap();
+        sbLp.leftMargin = Ui.dp(this, 10);
+        sbLp.rightMargin = Ui.dp(this, 10);
+        sbLp.topMargin = Ui.dp(this, 8);
+        sbLp.bottomMargin = Ui.dp(this, 2);
+        searchBox.setLayoutParams(sbLp);
+        root.addView(searchBox);
+        searchBox.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                refresh();
+            }
+        });
 
         listView = new ListView(this);
         listView.setDivider(null);
@@ -97,9 +137,39 @@ public class ChatListActivity extends Activity {
         refresh();
     }
 
+    @Override
+    protected void onDestroy() {
+        destroyed = true;
+        super.onDestroy();
+    }
+
     private void refresh() {
-        chats = db.listChats(AppDb.CHAT_AGENT);
-        adapter.notifyDataSetChanged();
+        final String query = searchBox == null ? null : searchBox.getText().toString().trim();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<AppDb.Chat> loaded = db.listChats(AppDb.CHAT_AGENT);
+                if (query != null && !query.isEmpty()) {
+                    String q = query.toLowerCase();
+                    List<AppDb.Chat> filtered = new ArrayList<>();
+                    for (AppDb.Chat c : loaded) {
+                        if (c.title != null && c.title.toLowerCase().contains(q)) {
+                            filtered.add(c);
+                        }
+                    }
+                    loaded = filtered;
+                }
+                final List<AppDb.Chat> result = loaded;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (destroyed) return;
+                        chats = result;
+                        adapter.notifyDataSetChanged();
+                    }
+                });
+            }
+        }).start();
     }
 
     private void onNewChat() {
@@ -130,16 +200,29 @@ public class ChatListActivity extends Activity {
 
     private void pickSkillThenCreate(final String title, final String model) {
         final List<AppDb.Skill> skills = db.listSkills();
+        if (skills.isEmpty()) {
+            // seeding may still be running on the background thread
+            Skills.seed(db);
+            skills.addAll(db.listSkills());
+        }
         String[] items = new String[skills.size()];
-        int checked = 0;
+        boolean[] checked = new boolean[skills.size()];
         for (int i = 0; i < skills.size(); i++) {
             items[i] = skills.get(i).name;
-            if (Skills.NAME_DEFAULT.equals(skills.get(i).name)) checked = i;
+            checked[i] = Skills.NAME_DEFAULT.equals(skills.get(i).name);
         }
-        Ui.singleChoice(this, "Pick a skill", items, checked, new Ui.ChoiceCallback() {
+        Ui.multiChoice(this, "Pick skills", items, checked, new Ui.MultiChoiceCallback() {
             @Override
-            public void onChoice(int index) {
-                long id = db.createChat(title, AppDb.CHAT_AGENT, model, skills.get(index).id);
+            public void onPicked(boolean[] picked) {
+                List<Long> ids = new ArrayList<>();
+                for (int i = 0; i < skills.size(); i++) {
+                    if (picked[i]) ids.add(skills.get(i).id);
+                }
+                if (ids.isEmpty()) {
+                    AppDb.Skill def = db.getSkillByName(Skills.NAME_DEFAULT);
+                    if (def != null) ids.add(def.id);
+                }
+                long id = db.createChat(title, AppDb.CHAT_AGENT, model, ids);
                 Intent i = new Intent(ChatListActivity.this, ChatActivity.class);
                 i.putExtra("chat_id", id);
                 startActivity(i);

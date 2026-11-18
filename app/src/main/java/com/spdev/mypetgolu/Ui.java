@@ -275,6 +275,76 @@ public final class Ui {
                 .show();
     }
 
+    public interface MultiChoiceCallback {
+        void onPicked(boolean[] checked);
+    }
+
+    /** Multi-choice list dialog (OK returns the checked flags). */
+    public static void multiChoice(Context c, String title, String[] items,
+                                   boolean[] checked, final MultiChoiceCallback cb) {
+        new AlertDialog.Builder(c)
+                .setTitle(title)
+                .setMultiChoiceItems(items, checked,
+                        new DialogInterface.OnMultiChoiceClickListener() {
+                            @Override
+                            public void onClick(DialogInterface d, int which, boolean isChecked) {
+                                checked[which] = isChecked;
+                            }
+                        })
+                .setPositiveButton("OK", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        cb.onPicked(checked);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** Scrollable dialog for detailed error reports (model, status, detail). */
+    public static void showErrorDialog(final Context c, String title, String detail) {
+        TextView tv = new TextView(c);
+        tv.setText(detail == null ? "Unknown error" : detail);
+        tv.setTextSize(13f);
+        tv.setTextColor(INK);
+        tv.setPadding(dp(c, 16), dp(c, 12), dp(c, 16), dp(c, 12));
+        tv.setTextIsSelectable(true);
+        android.widget.ScrollView sv = new android.widget.ScrollView(c);
+        sv.addView(tv);
+        new AlertDialog.Builder(c)
+                .setTitle(title)
+                .setView(sv)
+                .setPositiveButton("OK", null)
+                .setNeutralButton("Copy", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        android.content.ClipboardManager cm =
+                                (android.content.ClipboardManager) c.getSystemService(
+                                        Context.CLIPBOARD_SERVICE);
+                        if (cm != null) {
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText(
+                                    "Golu error", detail == null ? "" : detail));
+                            toast(c, "Error copied");
+                        }
+                    }
+                })
+                .show();
+    }
+
+    /** Single-line search field used above lists (chats, files, library). */
+    public static EditText searchBox(Context c) {
+        EditText et = new EditText(c);
+        et.setHint("Search...");
+        et.setTextSize(14f);
+        et.setTextColor(INK);
+        et.setHintTextColor(MUTED);
+        et.setSingleLine(true);
+        et.setInputType(InputType.TYPE_CLASS_TEXT);
+        et.setBackground(pill(c, CARD, LINE, 12));
+        et.setPadding(dp(c, 12), dp(c, 9), dp(c, 12), dp(c, 9));
+        return et;
+    }
+
     /** Simple scrolling text dialog (used to view library items). */
     public static void showText(Context c, String title, String text) {
         TextView tv = new TextView(c);

@@ -42,6 +42,7 @@ public class MemoryActivity extends Activity {
     private FactAdapter adapter;
     private TextView toggleBtn;
     private TextView suggestBtn;
+    private boolean destroyed = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,7 +92,7 @@ public class MemoryActivity extends Activity {
         root.addView(btnRow, Ui.matchWrap());
 
         // suggest button
-        suggestBtn = Ui.button(this, "Suggest facts from chats", Ui.BLUE);
+        suggestBtn = Ui.button(this, "Suggest from chats", Ui.BLUE);
         LinearLayout.LayoutParams sgLp = Ui.matchWrap();
         sgLp.leftMargin = Ui.dp(this, 10);
         sgLp.rightMargin = Ui.dp(this, 10);
@@ -150,13 +151,31 @@ public class MemoryActivity extends Activity {
         refresh();
     }
 
+    @Override
+    protected void onDestroy() {
+        destroyed = true;
+        super.onDestroy();
+    }
+
     private void refreshToggle() {
         toggleBtn.setText("Memory: " + (Prefs.isMemoryEnabled(this) ? "ON" : "OFF"));
     }
 
     private void refresh() {
-        facts = db.listMemory();
-        adapter.notifyDataSetChanged();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final List<AppDb.Fact> loaded = db.listMemory();
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (destroyed) return;
+                        facts = loaded;
+                        adapter.notifyDataSetChanged();
+                    }
+                });
+            }
+        }).start();
     }
 
     private void onSuggest() {
@@ -165,54 +184,74 @@ public class MemoryActivity extends Activity {
             startActivity(new Intent(this, SettingsActivity.class));
             return;
         }
-        // last 20 messages across agent chats + the conversation chat
-        List<AppDb.Msg> all = new ArrayList<>();
-        List<AppDb.Chat> chats = db.listChats(AppDb.CHAT_AGENT);
-        AppDb.Chat convo = db.getChatByKind(AppDb.CHAT_CONVERSATION);
-        if (convo != null) chats.add(convo);
-        for (AppDb.Chat c : chats) {
-            all.addAll(db.lastMessages(c.id, 20));
-        }
-        if (all.isEmpty()) {
-            Ui.toast(this, "No chats yet to learn from - chat with Golu first!");
-            return;
-        }
-        Collections.sort(all, new Comparator<AppDb.Msg>() {
-            @Override
-            public int compare(AppDb.Msg a, AppDb.Msg b) {
-                if (a.created < b.created) return -1;
-                if (a.created > b.created) return 1;
-                return 0;
-            }
-        });
-        if (all.size() > 20) {
-            all = new ArrayList<>(all.subList(all.size() - 20, all.size()));
-        }
-        StringBuilder b = new StringBuilder();
-        for (AppDb.Msg m : all) {
-            b.append(AppDb.ROLE_USER.equals(m.role) ? "user: " : "Golu: ");
-            b.append(m.text).append('\n');
-        }
-        String chatText = b.toString();
-        if (chatText.length() > 6000) {
-            chatText = chatText.substring(chatText.length() - 6000);
-        }
-
         suggestBtn.setEnabled(false);
-        GeminiClient.generateSimple(Prefs.getApiKey(this), Prefs.getBackgroundModel(this),
-                SUGGEST_SYSTEM, chatText, false, new GeminiClient.Callback() {
+        // gather the chat history off the UI thread; every callback below
+        // checks "destroyed" so leaving this screen early cannot crash
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                // last 20 messages across agent chats + the conversation chat
+                List<AppDb.Msg> all = new ArrayList<>();
+                List<AppDb.Chat> chats = db.listChats(AppDb.CHAT_AGENT);
+                AppDb.Chat convo = db.getChatByKind(AppDb.CHAT_CONVERSATION);
+                if (convo != null) chats.add(convo);
+                for (AppDb.Chat c : chats) {
+                    all.addAll(db.lastMessages(c.id, 20));
+                }
+                Collections.sort(all, new Comparator<AppDb.Msg>() {
                     @Override
-                    public void onOk(String reply) {
-                        suggestBtn.setEnabled(true);
-                        showSuggestedFacts(reply);
-                    }
-
-                    @Override
-                    public void onError(String message) {
-                        suggestBtn.setEnabled(true);
-                        Ui.toast(MemoryActivity.this, message);
+                    public int compare(AppDb.Msg a, AppDb.Msg b) {
+                        if (a.created < b.created) return -1;
+                        if (a.created > b.created) return 1;
+                        return 0;
                     }
                 });
+                if (all.size() > 20) {
+                    all = new ArrayList<>(all.subList(all.size() - 20, all.size()));
+                }
+                StringBuilder b = new StringBuilder();
+                for (AppDb.Msg m : all) {
+                    b.append(AppDb.ROLE_USER.equals(m.role) ? "user: " : "Golu: ");
+                    b.append(m.text).append('\n');
+                }
+                String chatText = b.toString();
+                if (chatText.length() > 6000) {
+                    chatText = chatText.substring(chatText.length() - 6000);
+                }
+                final String text = chatText;
+                final boolean empty = all.isEmpty();
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (destroyed) return;
+                        if (empty) {
+                            suggestBtn.setEnabled(true);
+                            Ui.toast(MemoryActivity.this,
+                                    "No chats yet to learn from - chat with Golu first!");
+                            return;
+                        }
+                        GeminiClient.generateSimple(Prefs.getApiKey(MemoryActivity.this),
+                                Prefs.getBackgroundModel(MemoryActivity.this),
+                                SUGGEST_SYSTEM, text, false, new GeminiClient.Callback() {
+                                    @Override
+                                    public void onOk(String reply) {
+                                        if (destroyed) return;
+                                        suggestBtn.setEnabled(true);
+                                        showSuggestedFacts(reply);
+                                    }
+
+                                    @Override
+                                    public void onError(String message) {
+                                        if (destroyed) return;
+                                        suggestBtn.setEnabled(true);
+                                        Ui.showErrorDialog(MemoryActivity.this,
+                                                "Gemini error", message);
+                                    }
+                                });
+                    }
+                });
+            }
+        }).start();
     }
 
     private void showSuggestedFacts(String reply) {

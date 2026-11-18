@@ -95,11 +95,52 @@ public final class Skills {
     }
 
     /**
+     * Library kind for a chat with several skills. Quiz Maker wins (its JSON
+     * must be parsed), then One Liner Maker, then Questions Asker.
+     */
+    public static String libraryKindForSkills(java.util.List<AppDb.Skill> skills) {
+        if (skills == null) return null;
+        String found = null;
+        for (AppDb.Skill s : skills) {
+            String k = s == null ? null : libraryKindForSkill(s.name);
+            if (AiDb.KIND_QUIZ.equals(k)) return k;
+            if (found == null) found = k;
+        }
+        return found;
+    }
+
+    /**
      * The system prompt actually sent to Gemini: the skill prompt plus the
      * AI memory facts (when memory is enabled).
      */
     public static String effectivePrompt(Context c, AppDb db, AppDb.Skill skill) {
-        String base = skill == null ? defaultPrompt() : skill.prompt;
+        java.util.List<AppDb.Skill> one = new java.util.ArrayList<>();
+        if (skill != null) one.add(skill);
+        return effectivePrompt(c, db, one);
+    }
+
+    /**
+     * Same, for a chat with several skills: every skill prompt is included
+     * as its own section so Gemini follows all of them.
+     */
+    public static String effectivePrompt(Context c, AppDb db, java.util.List<AppDb.Skill> skills) {
+        String base;
+        if (skills == null || skills.isEmpty()) {
+            base = defaultPrompt();
+        } else if (skills.size() == 1) {
+            base = skills.get(0) == null ? defaultPrompt() : skills.get(0).prompt;
+        } else {
+            StringBuilder b = new StringBuilder();
+            b.append("You are Golu, a friendly study buddy. Follow ALL of these "
+                    + "skill instructions together; when they conflict, the first one wins.\n");
+            for (int i = 0; i < skills.size(); i++) {
+                AppDb.Skill s = skills.get(i);
+                if (s == null) continue;
+                b.append("\n--- Skill ").append(i + 1).append(": ").append(s.name).append(" ---\n");
+                b.append(s.prompt).append('\n');
+            }
+            base = b.toString();
+        }
         if (Prefs.isMemoryEnabled(c)) {
             String mem = db.memoryBlock();
             if (!mem.isEmpty()) base = base + mem;

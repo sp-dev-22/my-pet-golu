@@ -18,7 +18,7 @@ import java.util.List;
 public class AiDb extends SQLiteOpenHelper {
 
     private static final String DB = "golu_ai.db";
-    private static final int VERSION = 1;
+    private static final int VERSION = 2;
 
     public static final String KIND_QUIZ = "quiz";
     public static final String KIND_NOTES = "notes";
@@ -33,6 +33,8 @@ public class AiDb extends SQLiteOpenHelper {
         public String kind;
         public String content;
         public String source;
+        /** Library folder name ("" = not filed yet) */
+        public String folder;
         public long created;
     }
 
@@ -48,12 +50,16 @@ public class AiDb extends SQLiteOpenHelper {
                 + "kind TEXT NOT NULL,"
                 + "content TEXT NOT NULL,"
                 + "source TEXT,"
+                + "folder TEXT NOT NULL DEFAULT '',"
                 + "created INTEGER NOT NULL)");
     }
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // version 1: nothing to migrate yet
+        if (oldVersion < 2) {
+            // v3.1: library items can live in folders ("" = unfiled)
+            db.execSQL("ALTER TABLE library ADD COLUMN folder TEXT NOT NULL DEFAULT ''");
+        }
     }
 
     public long addItem(String title, String kind, String content, String source) {
@@ -104,6 +110,93 @@ public class AiDb extends SQLiteOpenHelper {
         return out;
     }
 
+    /**
+     * Light list for the Library screen and pickers: id, title, kind,
+     * source, folder and date only - the (often large) content column is
+     * NOT loaded, so opening the list stays fast. Load the full item with
+     * getItem() only when it is actually viewed or sent to Gemini.
+     * kind, folder and query may each be null/empty to mean "any".
+     */
+    public List<Item> listItemSummaries(String kind, String folder, String query) {
+        String[] cols = {"id", "title", "kind", "source", "folder", "created"};
+        StringBuilder where = new StringBuilder();
+        List<String> args = new ArrayList<>();
+        if (kind != null && !kind.isEmpty()) {
+            where.append("kind=?");
+            args.add(kind);
+        }
+        if (folder != null && !folder.isEmpty()) {
+            if (where.length() > 0) where.append(" AND ");
+            where.append("folder=?");
+            args.add(folder);
+        }
+        if (query != null && !query.trim().isEmpty()) {
+            if (where.length() > 0) where.append(" AND ");
+            where.append("(title LIKE ? OR content LIKE ?)");
+            String q = "%" + query.trim() + "%";
+            args.add(q);
+            args.add(q);
+        }
+        List<Item> out = new ArrayList<>();
+        Cursor c = getReadableDatabase().query("library", cols,
+                where.length() == 0 ? null : where.toString(),
+                args.isEmpty() ? null : args.toArray(new String[0]),
+                null, null, "created DESC");
+        try {
+            while (c.moveToNext()) {
+                Item it = new Item();
+                it.id = c.getLong(c.getColumnIndexOrThrow("id"));
+                it.title = c.getString(c.getColumnIndexOrThrow("title"));
+                it.kind = c.getString(c.getColumnIndexOrThrow("kind"));
+                it.source = c.getString(c.getColumnIndexOrThrow("source"));
+                it.folder = c.getString(c.getColumnIndexOrThrow("folder"));
+                it.created = c.getLong(c.getColumnIndexOrThrow("created"));
+                it.content = "";
+                out.add(it);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    /** Distinct non-empty folder names in use, A-Z. */
+    public List<String> listFolders() {
+        List<String> out = new ArrayList<>();
+        Cursor c = getReadableDatabase().rawQuery(
+                "SELECT DISTINCT folder FROM library WHERE folder != '' ORDER BY folder ASC",
+                null);
+        try {
+            while (c.moveToNext()) {
+                String f = c.getString(0);
+                if (f != null && !f.trim().isEmpty()) out.add(f);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    /** Items that are not filed into any folder yet. */
+    public List<Item> listUnfiledItems() {
+        List<Item> out = new ArrayList<>();
+        Cursor c = getReadableDatabase().query("library", null, "folder=''",
+                null, null, null, "created DESC");
+        try {
+            while (c.moveToNext()) out.add(fromCursor(c));
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    /** Moves an item into a folder ("" = no folder). */
+    public void setItemFolder(long id, String folder) {
+        ContentValues v = new ContentValues();
+        v.put("folder", folder == null ? "" : folder.trim());
+        getWritableDatabase().update("library", v, "id=?", new String[]{String.valueOf(id)});
+    }
+
     public int countItems() {
         Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM library", null);
         try {
@@ -140,6 +233,9 @@ public class AiDb extends SQLiteOpenHelper {
         it.kind = c.getString(c.getColumnIndexOrThrow("kind"));
         it.content = c.getString(c.getColumnIndexOrThrow("content"));
         it.source = c.getString(c.getColumnIndexOrThrow("source"));
+        int fi = c.getColumnIndex("folder");
+        it.folder = fi >= 0 ? c.getString(fi) : "";
+        if (it.folder == null) it.folder = "";
         it.created = c.getLong(c.getColumnIndexOrThrow("created"));
         return it;
     }

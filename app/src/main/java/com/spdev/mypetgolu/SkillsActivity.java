@@ -25,12 +25,29 @@ public class SkillsActivity extends Activity {
     private List<AppDb.Skill> skills;
     private ListView listView;
     private SkillAdapter adapter;
+    private boolean destroyed = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         db = new AppDb(this);
-        Skills.seed(db);
+        // seed the built-in skills once, off the UI thread
+        if (!Prefs.isSkillsSeeded(this)) {
+            final AppDb seedDb = db;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    Skills.seed(seedDb);
+                    Prefs.setSkillsSeeded(SkillsActivity.this);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!destroyed) refresh();
+                        }
+                    });
+                }
+            }).start();
+        }
 
         LinearLayout root = Ui.column(this);
 
@@ -82,9 +99,27 @@ public class SkillsActivity extends Activity {
         refresh();
     }
 
+    @Override
+    protected void onDestroy() {
+        destroyed = true;
+        super.onDestroy();
+    }
+
     private void refresh() {
-        skills = db.listSkills();
-        adapter.notifyDataSetChanged();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final List<AppDb.Skill> loaded = db.listSkills();
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (destroyed) return;
+                        skills = loaded;
+                        adapter.notifyDataSetChanged();
+                    }
+                });
+            }
+        }).start();
     }
 
     private void onNewSkill() {

@@ -9,6 +9,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
@@ -30,15 +31,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Single persistent voice conversation with Golu.
+ * Single persistent voice conversation with Golu ("Talk").
  * Talk by typing or by mic (STT), Golu replies with text and voice (TTS)
- * with lip-sync. Three toggles control mic, voice and STT.
+ * with lip-sync. Three toggles control mic, voice and STT. Up to 3 files
+ * can be attached from folders or the Library.
  */
 public class ConversationActivity extends Activity {
 
     private static final int REQ_AUDIO = 101;
+    private static final int MAX_ATTACHMENTS = 3;
 
     private AppDb db;
+    private AiDb aiDb;
+    private UserDb userDb;
     private AppDb.Chat chat;
     private GoluVoice voice;
 
@@ -53,6 +58,10 @@ public class ConversationActivity extends Activity {
     private TextView sttChip;
     private TextView micButton;
     private EditText input;
+    private TextView attachChip;
+
+    private final List<UserDb.UserFile> attachedFiles = new ArrayList<>();
+    private final List<AiDb.Item> attachedItems = new ArrayList<>();
 
     private boolean busy = false;
     private boolean destroyed = false;
@@ -63,7 +72,9 @@ public class ConversationActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         db = new AppDb(this);
-        chat = db.getOrCreateSingleChat(AppDb.CHAT_CONVERSATION, "Conversation",
+        aiDb = new AiDb(this);
+        userDb = new UserDb(this);
+        chat = db.getOrCreateSingleChat(AppDb.CHAT_CONVERSATION, "Talk",
                 Prefs.getConversationModel(this));
         setContentView(buildUi());
 
@@ -110,7 +121,7 @@ public class ConversationActivity extends Activity {
 
     private View buildUi() {
         LinearLayout root = Ui.column(this);
-        root.addView(Ui.topBar(this, "Conversation"));
+        root.addView(Ui.topBar(this, "Talk"));
 
         pet = new PetView(this);
         root.addView(pet, new LinearLayout.LayoutParams(
@@ -188,12 +199,49 @@ public class ConversationActivity extends Activity {
         toggles.addView(sttChip, chipLp());
         root.addView(toggles, Ui.matchWrap());
 
+        // attachment chip (tap to clear)
+        attachChip = new TextView(this);
+        attachChip.setTextSize(12f);
+        attachChip.setTypeface(Typeface.DEFAULT_BOLD);
+        attachChip.setTextColor(Ui.ACCENT_DARK);
+        attachChip.setGravity(Gravity.CENTER);
+        attachChip.setPadding(Ui.dp(this, 10), Ui.dp(this, 7), Ui.dp(this, 10), Ui.dp(this, 7));
+        attachChip.setBackground(Ui.pill(this, Ui.CHIP_BG, Ui.LINE, 12));
+        attachChip.setVisibility(View.GONE);
+        attachChip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                clearAttachments();
+            }
+        });
+        LinearLayout chipRow = new LinearLayout(this);
+        chipRow.setOrientation(LinearLayout.HORIZONTAL);
+        chipRow.setGravity(Gravity.CENTER);
+        chipRow.setPadding(Ui.dp(this, 10), Ui.dp(this, 4), Ui.dp(this, 10), Ui.dp(this, 4));
+        chipRow.addView(attachChip, Ui.wrapWrap());
+        root.addView(chipRow, Ui.matchWrap());
+
         // input row
         LinearLayout bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackgroundColor(Ui.PANEL);
         bar.setPadding(Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8));
+
+        TextView attachBtn = new TextView(this);
+        attachBtn.setText("+");
+        attachBtn.setTextSize(22f);
+        attachBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        attachBtn.setTextColor(Ui.ACCENT_DARK);
+        attachBtn.setGravity(Gravity.CENTER);
+        attachBtn.setPadding(Ui.dp(this, 8), Ui.dp(this, 2), Ui.dp(this, 8), Ui.dp(this, 2));
+        attachBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                onAttach();
+            }
+        });
+        bar.addView(attachBtn, Ui.wrapWrap());
 
         micButton = Ui.button(this, "Mic", Ui.ACCENT);
         micButton.setOnClickListener(new View.OnClickListener() {
@@ -351,10 +399,41 @@ public class ConversationActivity extends Activity {
 
     // ------------------------------------------------------------------- send
 
+    private void onAttach() {
+        AttachPicker.show(this, userDb, aiDb, MAX_ATTACHMENTS,
+                attachedFiles, attachedItems, new AttachPicker.Listener() {
+                    @Override
+                    public void onPicked(List<UserDb.UserFile> files, List<AiDb.Item> items) {
+                        attachedFiles.clear();
+                        attachedFiles.addAll(files);
+                        attachedItems.clear();
+                        attachedItems.addAll(items);
+                        updateAttachChip();
+                    }
+                });
+    }
+
+    private void updateAttachChip() {
+        int n = attachedFiles.size() + attachedItems.size();
+        if (n == 0) {
+            attachChip.setVisibility(View.GONE);
+        } else {
+            attachChip.setText("Attached: " + n + " (tap to clear)");
+            attachChip.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void clearAttachments() {
+        attachedFiles.clear();
+        attachedItems.clear();
+        updateAttachChip();
+    }
+
     private void sendText(String raw) {
         if (raw == null) return;
         final String text = raw.trim();
-        if (text.isEmpty()) return;
+        int attachCount = attachedFiles.size() + attachedItems.size();
+        if (text.isEmpty() && attachCount == 0) return;
         if (busy) {
             Ui.toast(this, "Wait - Golu is still replying");
             return;
@@ -366,43 +445,91 @@ public class ConversationActivity extends Activity {
         }
 
         // history first, then append the current message
-        List<AppDb.Msg> hist = db.lastMessages(chat.id, 10);
-        JSONArray contents = GeminiClient.historyContents(hist);
-        List<JSONObject> parts = new ArrayList<>();
-        parts.add(GeminiClient.textPart(text));
-        contents.put(GeminiClient.content("user", parts));
-
-        db.addMessage(chat.id, AppDb.ROLE_USER, text, "text");
+        final List<AppDb.Msg> history = db.lastMessages(chat.id, 10);
+        String userText = text;
+        if (userText.isEmpty()) {
+            userText = "Attached " + attachCount + " file(s).";
+        }
+        db.addMessage(chat.id, AppDb.ROLE_USER, userText, "text");
         input.setText("");
         refreshTranscript();
 
         busy = true;
         status.setText("Golu is thinking...");
 
-        AppDb.Skill skill = db.getSkillByName(Skills.NAME_DEFAULT);
-        String system = Skills.effectivePrompt(this, db, skill);
-        GeminiClient.generate(Prefs.getApiKey(this), Prefs.getConversationModel(this),
-                system, contents, false, new GeminiClient.Callback() {
-                    @Override
-                    public void onOk(String reply) {
-                        busy = false;
-                        if (destroyed) return;
-                        db.addMessage(chat.id, AppDb.ROLE_AI, reply, "text");
-                        refreshTranscript();
-                        status.setText("Talk to Golu - tap the mic or type below");
-                        if (Prefs.isConvTtsOn(ConversationActivity.this) && voice != null) {
-                            voice.speak(reply, "conv");
-                        }
-                    }
+        final List<UserDb.UserFile> files = new ArrayList<>(attachedFiles);
+        final List<AiDb.Item> items = new ArrayList<>(attachedItems);
+        final String sendText = text;
 
+        // base64 encoding happens off the UI thread
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final List<GeminiClient.FilePart> fileParts = new ArrayList<>();
+                final List<String> skipped = new ArrayList<>();
+                for (UserDb.UserFile f : files) {
+                    String b64 = FileStore.base64OfFile(f.path);
+                    if (b64 == null) {
+                        skipped.add(f.name);
+                    } else {
+                        String mime = f.mime == null ? "application/octet-stream" : f.mime;
+                        fileParts.add(new GeminiClient.FilePart(mime, b64));
+                    }
+                }
+                runOnUiThread(new Runnable() {
                     @Override
-                    public void onError(String message) {
-                        busy = false;
-                        if (destroyed) return;
-                        status.setText("Talk to Golu - tap the mic or type below");
-                        Ui.toast(ConversationActivity.this, message);
+                    public void run() {
+                        for (String name : skipped) {
+                            Ui.toast(ConversationActivity.this,
+                                    "Skipped (too big or missing): " + name);
+                        }
+                        JSONArray contents = GeminiClient.historyContents(history);
+                        List<JSONObject> parts = new ArrayList<>();
+                        String promptText = sendText.isEmpty()
+                                ? "Please look at the attached files."
+                                : sendText;
+                        parts.add(GeminiClient.textPart(promptText));
+                        for (GeminiClient.FilePart fp : fileParts) {
+                            parts.add(GeminiClient.inlineDataPart(fp.mime, fp.base64));
+                        }
+                        for (AiDb.Item it : items) {
+                            parts.add(GeminiClient.textPart(
+                                    "[From library: " + it.title + "]\n" + it.content));
+                        }
+                        contents.put(GeminiClient.content("user", parts));
+
+                        AppDb.Skill skill = db.getSkillByName(Skills.NAME_DEFAULT);
+                        String system = Skills.effectivePrompt(ConversationActivity.this, db, skill);
+                        GeminiClient.generate(Prefs.getApiKey(ConversationActivity.this),
+                                Prefs.getConversationModel(ConversationActivity.this),
+                                system, contents, false, new GeminiClient.Callback() {
+                                    @Override
+                                    public void onOk(String reply) {
+                                        busy = false;
+                                        if (destroyed) return;
+                                        db.addMessage(chat.id, AppDb.ROLE_AI, reply, "text");
+                                        clearAttachments();
+                                        refreshTranscript();
+                                        status.setText("Talk to Golu - tap the mic or type below");
+                                        if (Prefs.isConvTtsOn(ConversationActivity.this)
+                                                && voice != null) {
+                                            voice.speak(reply, "conv");
+                                        }
+                                    }
+
+                                    @Override
+                                    public void onError(String message) {
+                                        busy = false;
+                                        if (destroyed) return;
+                                        status.setText("Talk to Golu - tap the mic or type below");
+                                        Ui.showErrorDialog(ConversationActivity.this,
+                                                "Gemini error", message);
+                                    }
+                                });
                     }
                 });
+            }
+        }).start();
     }
 
     // -------------------------------------------------------------------- mic

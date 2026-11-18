@@ -51,6 +51,24 @@ public class GoluVoice {
     private SttListener sttListener;
     private boolean listening = false;
 
+    // continuous listening (Asking mode): restart the recognizer on
+    // silence/timeout until the deadline, so the mic lasts the whole
+    // answer time instead of stopping after a few quiet seconds
+    private boolean continuous = false;
+    private long listenDeadline = 0;
+    private String listenLang = "";
+    private final Runnable restartRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (continuous && recognizer != null && System.currentTimeMillis() < listenDeadline) {
+                beginListening(listenLang);
+            } else if (continuous) {
+                continuous = false;
+                postSttError("TIMEOUT");
+            }
+        }
+    };
+
     public GoluVoice(Context ctx) {
         this.ctx = ctx.getApplicationContext();
     }
@@ -184,87 +202,152 @@ public class GoluVoice {
     }
 
     public void startListening(String languageTag, SttListener listener) {
+        continuous = false;
+        main.removeCallbacks(restartRunnable);
         this.sttListener = listener;
         if (!isSttAvailable(ctx)) {
             postSttError("Speech recognition is not available on this device.");
             return;
         }
-        if (recognizer == null) {
-            recognizer = SpeechRecognizer.createSpeechRecognizer(ctx);
-            recognizer.setRecognitionListener(new RecognitionListener() {
-                @Override
-                public void onReadyForSpeech(Bundle params) {
-                    listening = true;
-                }
+        ensureRecognizer();
+        beginListening(languageTag);
+    }
 
-                @Override
-                public void onBeginningOfSpeech() {
-                }
-
-                @Override
-                public void onRmsChanged(float rmsdB) {
-                }
-
-                @Override
-                public void onBufferReceived(byte[] buffer) {
-                }
-
-                @Override
-                public void onEndOfSpeech() {
-                    listening = false;
-                }
-
-                @Override
-                public void onError(int error) {
-                    listening = false;
-                    if (error == SpeechRecognizer.ERROR_NO_MATCH
-                            || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-                        postSttError("NOMATCH");
-                    } else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
-                        postSttError("Microphone permission needed.");
-                    } else if (error == SpeechRecognizer.ERROR_CLIENT
-                            || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
-                        postSttError("BUSY");
-                    } else {
-                        postSttError("Mic error, please try again.");
-                    }
-                }
-
-                @Override
-                public void onResults(Bundle results) {
-                    listening = false;
-                    ArrayList<String> list = results.getStringArrayList(
-                            SpeechRecognizer.RESULTS_RECOGNITION);
-                    if (list == null || list.isEmpty()) {
-                        postSttError("NOMATCH");
-                        return;
-                    }
-                    postSttResult(list.get(0));
-                }
-
-                @Override
-                public void onPartialResults(Bundle partialResults) {
-                }
-
-                @Override
-                public void onEvent(int eventType, Bundle params) {
-                }
-            });
+    /**
+     * Keeps listening for up to durationMs: whenever the recognizer stops
+     * on silence or a timeout with no result, it restarts automatically
+     * until the time is up (then onError("TIMEOUT")). A real result still
+     * ends listening immediately. Use for Asking mode, where mic time must
+     * equal the user's set answer time.
+     */
+    public void startListeningUntil(String languageTag, long durationMs, SttListener listener) {
+        continuous = true;
+        listenDeadline = System.currentTimeMillis() + Math.max(1000, durationMs);
+        listenLang = languageTag;
+        this.sttListener = listener;
+        if (!isSttAvailable(ctx)) {
+            continuous = false;
+            postSttError("Speech recognition is not available on this device.");
+            return;
         }
+        ensureRecognizer();
+        beginListening(languageTag);
+    }
+
+    /** Creates the recognizer (once) and wires its listener. */
+    private void ensureRecognizer() {
+        if (recognizer != null) return;
+        recognizer = SpeechRecognizer.createSpeechRecognizer(ctx);
+        recognizer.setRecognitionListener(new RecognitionListener() {
+            @Override
+            public void onReadyForSpeech(Bundle params) {
+                listening = true;
+            }
+
+            @Override
+            public void onBeginningOfSpeech() {
+            }
+
+            @Override
+            public void onRmsChanged(float rmsdB) {
+            }
+
+            @Override
+            public void onBufferReceived(byte[] buffer) {
+            }
+
+            @Override
+            public void onEndOfSpeech() {
+                listening = false;
+            }
+
+            @Override
+            public void onError(int error) {
+                listening = false;
+                if (continuous && isRestartable(error)) {
+                    // no speech yet: restart while time remains
+                    if (System.currentTimeMillis() < listenDeadline) {
+                        main.postDelayed(restartRunnable, 250);
+                    } else {
+                        continuous = false;
+                        postSttError("TIMEOUT");
+                    }
+                    return;
+                }
+                if (error == SpeechRecognizer.ERROR_NO_MATCH
+                        || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                    postSttError("NOMATCH");
+                } else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                    postSttError("Microphone permission needed.");
+                } else if (error == SpeechRecognizer.ERROR_CLIENT
+                        || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                    postSttError("BUSY");
+                } else {
+                    postSttError("Mic error, please try again.");
+                }
+            }
+
+            @Override
+            public void onResults(Bundle results) {
+                listening = false;
+                continuous = false;
+                main.removeCallbacks(restartRunnable);
+                ArrayList<String> list = results.getStringArrayList(
+                        SpeechRecognizer.RESULTS_RECOGNITION);
+                if (list == null || list.isEmpty()) {
+                    postSttError("NOMATCH");
+                    return;
+                }
+                postSttResult(list.get(0));
+            }
+
+            @Override
+            public void onPartialResults(Bundle partialResults) {
+            }
+
+            @Override
+            public void onEvent(int eventType, Bundle params) {
+            }
+        });
+    }
+
+    /** Errors worth an automatic restart while continuous listening. */
+    private static boolean isRestartable(int error) {
+        return error == SpeechRecognizer.ERROR_NO_MATCH
+                || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+                || error == SpeechRecognizer.ERROR_CLIENT
+                || error == SpeechRecognizer.ERROR_NETWORK;
+    }
+
+    /** Starts one listen pass with long silence windows (fewer early cutoffs). */
+    private void beginListening(String languageTag) {
+        if (recognizer == null) return;
         Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag);
         i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+        // wait longer before deciding the user has stopped speaking
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 5000);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 5000);
+        i.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500);
         try {
             recognizer.startListening(i);
             listening = true;
         } catch (Exception e) {
             listening = false;
-            postSttError("Could not start listening.");
+            if (continuous && System.currentTimeMillis() < listenDeadline) {
+                main.postDelayed(restartRunnable, 400);
+            } else {
+                continuous = false;
+                postSttError("Could not start listening.");
+            }
         }
     }
 
     public void cancelListening() {
+        continuous = false;
+        main.removeCallbacks(restartRunnable);
         if (recognizer != null && listening) {
             try {
                 recognizer.cancel();
@@ -275,6 +358,8 @@ public class GoluVoice {
     }
 
     public void destroyStt() {
+        continuous = false;
+        main.removeCallbacks(restartRunnable);
         if (recognizer != null) {
             try {
                 recognizer.destroy();

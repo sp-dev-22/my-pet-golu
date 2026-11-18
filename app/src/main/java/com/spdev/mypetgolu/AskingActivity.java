@@ -28,9 +28,10 @@ import java.util.Locale;
 
 /**
  * Offline question-asking (quiz) mode. Golu reads each question aloud
- * (TTS with lip-sync), then listens for the answer by voice or tap
- * until the countdown runs out. Questions come from stored quiz JSON -
- * Gemini is only used to generate a new quiz, never during asking.
+ * (TTS with lip-sync, can be switched off), then listens for the answer
+ * by voice or tap until the countdown runs out. Questions come only from
+ * quizzes already saved in the Library (made in agent chats) - nothing
+ * is created with AI here, and no API calls happen during asking.
  */
 public class AskingActivity extends Activity {
 
@@ -53,6 +54,7 @@ public class AskingActivity extends Activity {
     private LinearLayout finishRow;
     private TextView nextButton;
     private TextView micIndicator;
+    private TextView voiceChip;
 
     // quiz state
     private List<QuizUtil.Question> questions;
@@ -62,7 +64,6 @@ public class AskingActivity extends Activity {
     private boolean waiting = false;
     private boolean answered = false;
     private boolean finished = false;
-    private boolean generating = false;
     private boolean destroyed = false;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -94,7 +95,7 @@ public class AskingActivity extends Activity {
         super.onCreate(savedInstanceState);
         db = new AppDb(this);
         aiDb = new AiDb(this);
-        chat = db.getOrCreateSingleChat(AppDb.CHAT_ASKING, "Asking",
+        chat = db.getOrCreateSingleChat(AppDb.CHAT_ASKING, "Quiz",
                 Prefs.getAskingModel(this));
         setContentView(buildUi());
 
@@ -167,7 +168,7 @@ public class AskingActivity extends Activity {
 
     private View buildUi() {
         LinearLayout root = Ui.column(this);
-        root.addView(Ui.topBar(this, "Asking"));
+        root.addView(Ui.topBar(this, "Quiz"));
 
         pet = new PetView(this);
         root.addView(pet, new LinearLayout.LayoutParams(
@@ -234,20 +235,20 @@ public class AskingActivity extends Activity {
         }
         root.addView(optionsArea, Ui.matchWrap());
 
-        // timeout mark row: "I knew it" / "I missed it"
+        // timeout mark row: "Knew it" / "Missed it"
         markRow = new LinearLayout(this);
         markRow.setOrientation(LinearLayout.HORIZONTAL);
         markRow.setGravity(Gravity.CENTER);
         markRow.setPadding(Ui.dp(this, 8), Ui.dp(this, 4), Ui.dp(this, 8), Ui.dp(this, 4));
         markRow.setVisibility(View.GONE);
-        TextView knew = Ui.button(this, "I knew it", Ui.GREEN);
+        TextView knew = Ui.button(this, "Knew it", Ui.GREEN);
         knew.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 onMark(true);
             }
         });
-        TextView missed = Ui.button(this, "I missed it", Ui.RED);
+        TextView missed = Ui.button(this, "Missed it", Ui.RED);
         missed.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -258,20 +259,20 @@ public class AskingActivity extends Activity {
         markRow.addView(missed, buttonLp());
         root.addView(markRow, Ui.matchWrap());
 
-        // finish row: "Play again" / "New quiz"
+        // finish row: "Again" / "Pick quiz"
         finishRow = new LinearLayout(this);
         finishRow.setOrientation(LinearLayout.HORIZONTAL);
         finishRow.setGravity(Gravity.CENTER);
         finishRow.setPadding(Ui.dp(this, 8), Ui.dp(this, 4), Ui.dp(this, 8), Ui.dp(this, 4));
         finishRow.setVisibility(View.GONE);
-        TextView playAgain = Ui.button(this, "Play again", Ui.ACCENT);
+        TextView playAgain = Ui.button(this, "Again", Ui.ACCENT);
         playAgain.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (questions != null && !questions.isEmpty()) beginQuiz(questions, quizTitle);
             }
         });
-        TextView finishNew = Ui.button(this, "New quiz", Ui.BLUE);
+        TextView finishNew = Ui.button(this, "Pick quiz", Ui.BLUE);
         finishNew.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -282,7 +283,7 @@ public class AskingActivity extends Activity {
         finishRow.addView(finishNew, buttonLp());
         root.addView(finishRow, Ui.matchWrap());
 
-        // control row: Next + New quiz + mic indicator
+        // control row: Next + Pick quiz + Voice toggle + mic indicator
         LinearLayout controls = new LinearLayout(this);
         controls.setOrientation(LinearLayout.HORIZONTAL);
         controls.setGravity(Gravity.CENTER_VERTICAL);
@@ -300,8 +301,8 @@ public class AskingActivity extends Activity {
         controls.addView(nextButton, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView newQuiz = Ui.button(this, "New quiz", Ui.BLUE);
-        newQuiz.setOnClickListener(new View.OnClickListener() {
+        TextView pickQuiz = Ui.button(this, "Pick quiz", Ui.BLUE);
+        pickQuiz.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 // the running quiz keeps going behind the picker; it is
@@ -312,7 +313,26 @@ public class AskingActivity extends Activity {
         LinearLayout.LayoutParams nqLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         nqLp.leftMargin = Ui.dp(this, 8);
-        controls.addView(newQuiz, nqLp);
+        controls.addView(pickQuiz, nqLp);
+
+        voiceChip = Ui.chip(this, "", true);
+        refreshVoiceChip();
+        voiceChip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                boolean on = !Prefs.isAskingTtsOn(AskingActivity.this);
+                Prefs.setAskingTtsOn(AskingActivity.this, on);
+                if (!on && voice != null) {
+                    voice.stopTts();
+                    pet.setSpeaking(false);
+                }
+                refreshVoiceChip();
+            }
+        });
+        LinearLayout.LayoutParams vcLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        vcLp.leftMargin = Ui.dp(this, 8);
+        controls.addView(voiceChip, vcLp);
 
         micIndicator = new TextView(this);
         micIndicator.setText("");
@@ -333,6 +353,20 @@ public class AskingActivity extends Activity {
         lp.leftMargin = Ui.dp(this, 6);
         lp.rightMargin = Ui.dp(this, 6);
         return lp;
+    }
+
+    private void refreshVoiceChip() {
+        boolean on = Prefs.isAskingTtsOn(this);
+        voiceChip.setText(on ? "Voice ON" : "Voice OFF");
+        voiceChip.setTextColor(on ? 0xFFFFFFFF : 0xFF6B4A22);
+        voiceChip.setBackground(Ui.pill(this, on ? Ui.ACCENT : Ui.CHIP_BG,
+                on ? 0 : Ui.LINE, 14));
+    }
+
+    /** Speaks only when the Asking voice toggle is ON and TTS is ready. */
+    private void speak(String text, String id) {
+        if (!Prefs.isAskingTtsOn(this) || voice == null || !voice.isTtsReady()) return;
+        voice.speak(text, id);
     }
 
     // ------------------------------------------------------------- transcript
@@ -420,13 +454,29 @@ public class AskingActivity extends Activity {
 
     // ------------------------------------------------------------ quiz picker
 
+    /** Library quizzes only - Asking never creates anything with AI. */
     private void showPicker() {
         final List<AiDb.Item> quizzes = aiDb.listItemsByKind(AiDb.KIND_QUIZ);
         final AppDb.AskingSession lastUnfinished = findUnfinishedSession();
 
+        if (quizzes.isEmpty() && lastUnfinished == null) {
+            new AlertDialog.Builder(this)
+                    .setTitle("No quizzes yet")
+                    .setMessage("Make a quiz first in Chats (Quiz Maker skill) - "
+                            + "it will be saved to the Library and you can practise it here.")
+                    .setPositiveButton("Open Chats", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface d, int w) {
+                            startActivity(new Intent(AskingActivity.this, ChatListActivity.class));
+                        }
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+            return;
+        }
+
         final List<String> labels = new ArrayList<>();
         for (AiDb.Item it : quizzes) labels.add(it.title);
-        labels.add("Generate new quiz");
         if (lastUnfinished != null) labels.add("Resume last session");
 
         final String[] items = labels.toArray(new String[0]);
@@ -444,8 +494,6 @@ public class AskingActivity extends Activity {
                             } else {
                                 beginQuiz(qs, item.title);
                             }
-                        } else if (which == quizzes.size()) {
-                            generateNewQuiz();
                         } else {
                             resumeSession(lastUnfinished);
                         }
@@ -559,12 +607,12 @@ public class AskingActivity extends Activity {
             speech.append(" Option ").append((char) ('A' + i)).append(": ").append(q.options[i]).append(".");
         }
 
-        if (voice != null && voice.isTtsReady()) {
+        if (Prefs.isAskingTtsOn(this) && voice != null && voice.isTtsReady()) {
             questionSeq++;
             currentQid = "q" + questionSeq;
             voice.speak(speech.toString(), currentQid);
         } else {
-            // no TTS: go straight to waiting for the answer
+            // voice off or no TTS: go straight to waiting for the answer
             startWaiting();
         }
     }
@@ -611,7 +659,10 @@ public class AskingActivity extends Activity {
             micIndicator.setText("Speech recognition not available - tap an option");
             return;
         }
-        voice.startListening(Prefs.getSttTag(this), new GoluVoice.SttListener() {
+        // mic time = answer time: the recognizer restarts itself on silence
+        // until the countdown runs out, instead of stopping after a few seconds
+        long micMs = Math.max(1000L, (long) secondsLeft * 1000L);
+        voice.startListeningUntil(Prefs.getSttTag(this), micMs, new GoluVoice.SttListener() {
             @Override
             public void onResult(String text) {
                 if (!waiting || answered || destroyed) return;
@@ -632,6 +683,7 @@ public class AskingActivity extends Activity {
                     // no speech heard: listen again while time remains
                     startListeningForAnswer();
                 }
+                // "TIMEOUT" needs nothing: the countdown ends the question
             }
         });
     }
@@ -732,7 +784,7 @@ public class AskingActivity extends Activity {
         }
         db.addMessage(chat.id, AppDb.ROLE_AI, verdict.trim(), "text");
         refreshTranscript();
-        if (voice != null) voice.speak(verdict, "verdict");
+        speak(verdict, "verdict");
 
         micIndicator.setText(byVoice ? "Heard: " + letter : "You picked " + letter);
         updateStatus();
@@ -755,7 +807,7 @@ public class AskingActivity extends Activity {
                 : "Time up! The correct answer was " + correctLetter + ". " + q.explanation;
         db.addMessage(chat.id, AppDb.ROLE_AI, verdict.trim(), "text");
         refreshTranscript();
-        if (voice != null) voice.speak(verdict, "verdict");
+        speak(verdict, "verdict");
 
         micIndicator.setText("Time's up!");
         updateStatus();
@@ -765,9 +817,9 @@ public class AskingActivity extends Activity {
     private void onMark(boolean knewIt) {
         if (knewIt) {
             score++;
-            db.addMessage(chat.id, AppDb.ROLE_USER, "I knew it", "text");
+            db.addMessage(chat.id, AppDb.ROLE_USER, "Knew it", "text");
         } else {
-            db.addMessage(chat.id, AppDb.ROLE_USER, "I missed it", "text");
+            db.addMessage(chat.id, AppDb.ROLE_USER, "Missed it", "text");
         }
         refreshTranscript();
         markRow.setVisibility(View.GONE);
@@ -801,7 +853,7 @@ public class AskingActivity extends Activity {
                 : "Quiz finished! Your score: " + score + " out of " + total + ".";
         db.addMessage(chat.id, AppDb.ROLE_AI, summary, "text");
         refreshTranscript();
-        if (voice != null) voice.speak(summary, "finish");
+        speak(summary, "finish");
         status.setText("Quiz finished \u00B7 Score: " + score + " / " + total);
         micIndicator.setText("");
         optionsArea.setVisibility(View.GONE);
@@ -826,73 +878,4 @@ public class AskingActivity extends Activity {
         status.setText(b.toString());
     }
 
-    // ----------------------------------------------------------- quiz making
-
-    private void generateNewQuiz() {
-        Ui.input(this, "New quiz", "Topic, e.g. Science chapter 3", "", new Ui.InputCallback() {
-            @Override
-            public void onInput(final String topic) {
-                if (topic == null || topic.isEmpty()) {
-                    Ui.toast(AskingActivity.this, "Enter a topic for the quiz");
-                    return;
-                }
-                Ui.input(AskingActivity.this, "How many questions?", "1 to 20", "5",
-                        new Ui.InputCallback() {
-                            @Override
-                            public void onInput(String countText) {
-                                int count = 5;
-                                try {
-                                    count = Integer.parseInt(countText.trim());
-                                } catch (Exception ignored) {
-                                }
-                                if (count < 1) count = 1;
-                                if (count > 20) count = 20;
-                                requestQuiz(topic, count);
-                            }
-                        });
-            }
-        });
-    }
-
-    private void requestQuiz(final String topic, final int count) {
-        if (!Prefs.hasApiKey(this)) {
-            Ui.toast(this, "Add your Gemini API key in Settings first");
-            startActivity(new Intent(this, SettingsActivity.class));
-            return;
-        }
-        if (generating) return;
-        generating = true;
-        stopQuiz();
-        status.setText("Making your quiz on " + topic + "...");
-        micIndicator.setText("");
-        GeminiClient.generateSimple(Prefs.getApiKey(this), Prefs.getAskingModel(this),
-                Skills.quizMakerPrompt(),
-                "Create " + count + " MCQ quiz questions on topic: " + topic,
-                true, new GeminiClient.Callback() {
-                    @Override
-                    public void onOk(String text) {
-                        generating = false;
-                        if (destroyed) return;
-                        List<QuizUtil.Question> qs = QuizUtil.parseQuiz(text);
-                        if (qs.isEmpty()) {
-                            Ui.toast(AskingActivity.this, "Could not make a quiz, try again");
-                            updateStatus();
-                            showPicker();
-                            return;
-                        }
-                        String title = QuizUtil.quizTitle(qs, "Quiz: " + topic);
-                        aiDb.addItem(title, AiDb.KIND_QUIZ, QuizUtil.toJson(qs), "Asking");
-                        beginQuiz(qs, title);
-                    }
-
-                    @Override
-                    public void onError(String message) {
-                        generating = false;
-                        if (destroyed) return;
-                        Ui.toast(AskingActivity.this, message);
-                        updateStatus();
-                        showPicker();
-                    }
-                });
-    }
 }

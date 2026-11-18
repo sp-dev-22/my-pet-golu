@@ -156,7 +156,7 @@ public class ChatActivity extends Activity {
         inputRow.addView(attachBtn, Ui.wrapWrap());
 
         input = new EditText(this);
-        input.setHint("Ask Golu anything...");
+        input.setHint("Ask Golu...");
         input.setTextSize(15f);
         input.setTextColor(Ui.INK);
         input.setBackground(Ui.pill(this, Ui.CARD, Ui.LINE, 14));
@@ -231,20 +231,35 @@ public class ChatActivity extends Activity {
         return tv;
     }
 
-    private AppDb.Skill currentSkill() {
-        if (chat.skillId == 0) return db.getSkillByName(Skills.NAME_DEFAULT);
-        AppDb.Skill s = db.getSkill(chat.skillId);
-        return s == null ? db.getSkillByName(Skills.NAME_DEFAULT) : s;
+    /** The chat's skills (empty = Golu Tutor). */
+    private List<AppDb.Skill> currentSkills() {
+        List<AppDb.Skill> out = db.getSkillsByIds(chat.skillIdList());
+        if (out.isEmpty()) {
+            AppDb.Skill def = db.getSkillByName(Skills.NAME_DEFAULT);
+            if (def != null) out.add(def);
+        }
+        return out;
     }
 
-    private String currentSkillName() {
-        AppDb.Skill s = currentSkill();
-        return s == null ? Skills.NAME_DEFAULT : s.name;
+    /** Short label for the skill chip: one name, or "N skills". */
+    private String currentSkillLabel() {
+        List<AppDb.Skill> skills = currentSkills();
+        if (skills.size() <= 1) {
+            return skills.isEmpty() ? Skills.NAME_DEFAULT : skills.get(0).name;
+        }
+        return skills.get(0).name + " +" + (skills.size() - 1);
+    }
+
+    private boolean hasQuizMakerSkill() {
+        for (AppDb.Skill s : currentSkills()) {
+            if (Skills.NAME_QUIZ_MAKER.equals(s.name)) return true;
+        }
+        return false;
     }
 
     private void refreshHeader() {
         modelBtn.setText(chat.model == null ? Prefs.getAgentModel(this) : chat.model);
-        skillBtn.setText(currentSkillName());
+        skillBtn.setText(currentSkillLabel());
     }
 
     private void pickModel() {
@@ -262,19 +277,31 @@ public class ChatActivity extends Activity {
         });
     }
 
+    /** Multi-select: a chat can use several skills at once. */
     private void pickSkill() {
         final List<AppDb.Skill> skills = db.listSkills();
         String[] items = new String[skills.size()];
-        int checked = 0;
+        boolean[] checked = new boolean[skills.size()];
+        List<Long> mine = chat.skillIdList();
         for (int i = 0; i < skills.size(); i++) {
             items[i] = skills.get(i).name;
-            if (skills.get(i).id == chat.skillId) checked = i;
+            checked[i] = mine.contains(skills.get(i).id);
         }
-        Ui.singleChoice(this, "Pick a skill", items, checked, new Ui.ChoiceCallback() {
+        Ui.multiChoice(this, "Pick skills", items, checked, new Ui.MultiChoiceCallback() {
             @Override
-            public void onChoice(int index) {
-                chat.skillId = skills.get(index).id;
-                db.updateChatSkill(chatId, chat.skillId);
+            public void onPicked(boolean[] picked) {
+                List<Long> ids = new ArrayList<>();
+                for (int i = 0; i < skills.size(); i++) {
+                    if (picked[i]) ids.add(skills.get(i).id);
+                }
+                if (ids.isEmpty()) {
+                    // no skill picked = plain Golu Tutor
+                    AppDb.Skill def = db.getSkillByName(Skills.NAME_DEFAULT);
+                    if (def != null) ids.add(def.id);
+                }
+                chat.skillIds = AppDb.joinSkillIds(ids);
+                chat.skillId = ids.isEmpty() ? 0 : ids.get(0);
+                db.updateChatSkills(chatId, ids);
                 refreshHeader();
             }
         });
@@ -307,7 +334,7 @@ public class ChatActivity extends Activity {
                                             "Golu message", msg.text));
                                     Ui.toast(ChatActivity.this, "Copied");
                                 } else if (which == 1) {
-                                    String kind = Skills.libraryKindForSkill(currentSkillName());
+                                    String kind = Skills.libraryKindForSkills(currentSkills());
                                     if (kind == null) kind = AiDb.KIND_OTHER;
                                     aiDb.addItem(firstLine60(msg.text), kind, msg.text, chat.title);
                                     Ui.toast(ChatActivity.this, "Saved to Library");
@@ -330,73 +357,17 @@ public class ChatActivity extends Activity {
     // -------------------------------------------------------------- attachments
 
     private void onAttach() {
-        final List<UserDb.UserFile> allFiles = userDb.listAllFiles();
-        final List<AiDb.Item> allItems = aiDb.listItems();
-        int total = allFiles.size() + allItems.size();
-        if (total == 0) {
-            Ui.toast(this, "Nothing to attach yet - upload a file or save something to the Library first");
-            return;
-        }
-        final String[] labels = new String[total];
-        final boolean[] checked = new boolean[total];
-        for (int i = 0; i < allFiles.size(); i++) {
-            UserDb.Folder folder = userDb.getFolder(allFiles.get(i).folderId);
-            String folderName = folder == null ? "Files" : folder.name;
-            labels[i] = folderName + " / " + allFiles.get(i).name;
-            checked[i] = isAttachedFile(allFiles.get(i).id);
-        }
-        for (int j = 0; j < allItems.size(); j++) {
-            labels[allFiles.size() + j] = "Library: " + allItems.get(j).title;
-            checked[allFiles.size() + j] = isAttachedItem(allItems.get(j).id);
-        }
-        new AlertDialog.Builder(this)
-                .setTitle("Attach files (max " + MAX_ATTACHMENTS + ")")
-                .setMultiChoiceItems(labels, checked, new DialogInterface.OnMultiChoiceClickListener() {
+        AttachPicker.show(this, userDb, aiDb, MAX_ATTACHMENTS,
+                attachedFiles, attachedItems, new AttachPicker.Listener() {
                     @Override
-                    public void onClick(DialogInterface dialog, int which, boolean isChecked) {
-                        checked[which] = isChecked;
-                        if (isChecked) {
-                            int count = 0;
-                            for (boolean b : checked) if (b) count++;
-                            if (count > MAX_ATTACHMENTS) {
-                                checked[which] = false;
-                                ((AlertDialog) dialog).getListView().setItemChecked(which, false);
-                                Ui.toast(ChatActivity.this,
-                                        "Max " + MAX_ATTACHMENTS + " attachments at a time");
-                            }
-                        }
-                    }
-                })
-                .setPositiveButton("Attach", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface d, int w) {
+                    public void onPicked(List<UserDb.UserFile> files, List<AiDb.Item> items) {
                         attachedFiles.clear();
+                        attachedFiles.addAll(files);
                         attachedItems.clear();
-                        for (int i = 0; i < allFiles.size(); i++) {
-                            if (checked[i]) attachedFiles.add(allFiles.get(i));
-                        }
-                        for (int j = 0; j < allItems.size(); j++) {
-                            if (checked[allFiles.size() + j]) attachedItems.add(allItems.get(j));
-                        }
+                        attachedItems.addAll(items);
                         updateAttachChip();
                     }
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private boolean isAttachedFile(long id) {
-        for (UserDb.UserFile f : attachedFiles) {
-            if (f.id == id) return true;
-        }
-        return false;
-    }
-
-    private boolean isAttachedItem(long id) {
-        for (AiDb.Item it : attachedItems) {
-            if (it.id == id) return true;
-        }
-        return false;
+                });
     }
 
     private void updateAttachChip() {
@@ -450,10 +421,9 @@ public class ChatActivity extends Activity {
         scrollToBottom();
         setBusy(true);
 
-        final AppDb.Skill skill = currentSkill();
-        final String skillName = skill == null ? Skills.NAME_DEFAULT : skill.name;
-        final String systemPrompt = Skills.effectivePrompt(this, db, skill);
-        final boolean jsonMode = Skills.NAME_QUIZ_MAKER.equals(skillName);
+        final List<AppDb.Skill> skills = currentSkills();
+        final String systemPrompt = Skills.effectivePrompt(this, db, skills);
+        final boolean jsonMode = hasQuizMakerSkill();
         final String model = chat.model == null ? Prefs.getAgentModel(this) : chat.model;
         final String apiKey = Prefs.getApiKey(this);
         final String sendText = text;
@@ -501,7 +471,7 @@ public class ChatActivity extends Activity {
                                     @Override
                                     public void onOk(String reply) {
                                         db.addMessage(chatId, AppDb.ROLE_AI, reply, "text");
-                                        boolean saved = autoSave(reply, skillName);
+                                        boolean saved = autoSave(reply, skills);
                                         clearAttachments();
                                         refreshMessages();
                                         scrollToBottom();
@@ -512,7 +482,7 @@ public class ChatActivity extends Activity {
                                     @Override
                                     public void onError(String message) {
                                         setBusy(false);
-                                        Ui.toast(ChatActivity.this, message);
+                                        Ui.showErrorDialog(ChatActivity.this, "Gemini error", message);
                                     }
                                 });
                     }
@@ -522,8 +492,8 @@ public class ChatActivity extends Activity {
     }
 
     /** Auto-saves creator-skill replies to the Library. Returns true if saved. */
-    private boolean autoSave(String reply, String skillName) {
-        String kind = Skills.libraryKindForSkill(skillName);
+    private boolean autoSave(String reply, List<AppDb.Skill> skills) {
+        String kind = Skills.libraryKindForSkills(skills);
         if (kind == null) return false;
         if (AiDb.KIND_QUIZ.equals(kind)) {
             List<QuizUtil.Question> qs = QuizUtil.parseQuiz(reply);

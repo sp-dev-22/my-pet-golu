@@ -20,13 +20,14 @@ import android.widget.TextView;
 import java.util.ArrayDeque;
 
 /**
- * Home screen of Golu Study: Golu the pet companion on top, a bottom
- * navigation panel for the study screens, and a Play sheet (book button)
- * with Golu's look and a trimmed set of fun actions.
+ * Home screen of Golu Study: Golu the pet companion on top and a bottom
+ * panel with the study screens. Tapping Play swaps the navigation buttons
+ * in place for Golu's look and fun actions (with a Back button) - no
+ * separate Play screen to open and close again and again.
  */
 public class MainActivity extends Activity implements PetView.Listener {
 
-    /** Trimmed set of fun actions shown in the Play sheet. */
+    /** Trimmed set of fun actions shown in the Play panel. */
     private static final int[] PLAY_ACTIONS = {
             Acts.SMILE, Acts.LAUGH, Acts.DANCE, Acts.SING, Acts.JUMP,
             Acts.TICKLE, Acts.SLEEP, Acts.WAKEUP, Acts.NAMASTE, Acts.LOVE,
@@ -38,8 +39,10 @@ public class MainActivity extends Activity implements PetView.Listener {
     private TextView status;
     private TextView soundButton;
 
-    private FrameLayout menuOverlay;
-    private LinearLayout menuPanel;
+    private LinearLayout navPanel;
+    private ScrollView playScroll;
+    private LinearLayout playContent;
+    private boolean playOpen = false;
 
     private GoluVoice voice;
     private boolean ttsOn = true;
@@ -56,7 +59,16 @@ public class MainActivity extends Activity implements PetView.Listener {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
-        Skills.seed(new AppDb(this));
+        // seed the built-in skills once, off the UI thread
+        if (!Prefs.isSkillsSeeded(this)) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    Skills.seed(new AppDb(MainActivity.this));
+                    Prefs.setSkillsSeeded(MainActivity.this);
+                }
+            }).start();
+        }
 
         setContentView(buildUi());
 
@@ -106,6 +118,15 @@ public class MainActivity extends Activity implements PetView.Listener {
         super.onDestroy();
     }
 
+    @Override
+    public void onBackPressed() {
+        if (playOpen) {
+            showNav();
+        } else {
+            super.onBackPressed();
+        }
+    }
+
     // -------------------------------------------------------------------- UI
 
     private int dp(float v) {
@@ -152,54 +173,76 @@ public class MainActivity extends Activity implements PetView.Listener {
         soundLp.rightMargin = dp(10);
         root.addView(soundButton, soundLp);
 
-        // bottom navigation panel
-        root.addView(buildNavPanel(), new FrameLayout.LayoutParams(
+        // bottom panel: navigation grid, swapped in place by the Play panel
+        root.addView(buildBottomArea(), new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM));
 
-        buildMenu(root);
         return root;
+    }
+
+    /** Bottom area holding the nav grid and, hidden, the Play panel. */
+    private LinearLayout buildBottomArea() {
+        LinearLayout area = new LinearLayout(this);
+        area.setOrientation(LinearLayout.VERTICAL);
+        area.setPadding(dp(10), dp(10), dp(10), dp(12));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadii(new float[]{dp(22), dp(22), dp(22), dp(22), 0, 0, 0, 0});
+        bg.setColor(Ui.PANEL);
+        area.setBackground(bg);
+
+        navPanel = buildNavPanel();
+        area.addView(navPanel);
+
+        playScroll = new ScrollView(this);
+        playScroll.setVerticalScrollBarEnabled(true);
+        playContent = new LinearLayout(this);
+        playContent.setOrientation(LinearLayout.VERTICAL);
+        playContent.setPadding(dp(4), 0, dp(4), dp(8));
+        playScroll.addView(playContent, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        int playHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.55);
+        playScroll.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, playHeight));
+        playScroll.setVisibility(View.GONE);
+        area.addView(playScroll);
+        return area;
     }
 
     private LinearLayout buildNavPanel() {
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(10), dp(10), dp(10), dp(12));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadii(new float[]{dp(22), dp(22), dp(22), dp(22), 0, 0, 0, 0});
-        bg.setColor(Ui.PANEL);
-        panel.setBackground(bg);
 
         LinearLayout row1 = new LinearLayout(this);
         row1.setOrientation(LinearLayout.HORIZONTAL);
-        row1.addView(navButton("Chat", new Runnable() {
+        row1.addView(navButton("Chats", new Runnable() {
             @Override
             public void run() {
                 startActivity(new Intent(MainActivity.this, ChatListActivity.class));
             }
         }));
-        row1.addView(navButton("Conversation", new Runnable() {
+        row1.addView(navButton("Talk", new Runnable() {
             @Override
             public void run() {
                 startActivity(new Intent(MainActivity.this, ConversationActivity.class));
             }
         }));
-        row1.addView(navButton("Asking", new Runnable() {
+        row1.addView(navButton("Quiz", new Runnable() {
             @Override
             public void run() {
                 startActivity(new Intent(MainActivity.this, AskingActivity.class));
-            }
-        }));
-        row1.addView(navButton("Library", new Runnable() {
-            @Override
-            public void run() {
-                startActivity(new Intent(MainActivity.this, LibraryActivity.class));
             }
         }));
         panel.addView(row1);
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.addView(navButton("Library", new Runnable() {
+            @Override
+            public void run() {
+                startActivity(new Intent(MainActivity.this, LibraryActivity.class));
+            }
+        }));
         row2.addView(navButton("Files", new Runnable() {
             @Override
             public void run() {
@@ -212,19 +255,29 @@ public class MainActivity extends Activity implements PetView.Listener {
                 startActivity(new Intent(MainActivity.this, SkillsActivity.class));
             }
         }));
-        row2.addView(navButton("Settings", new Runnable() {
+        panel.addView(row2);
+
+        LinearLayout row3 = new LinearLayout(this);
+        row3.setOrientation(LinearLayout.HORIZONTAL);
+        row3.addView(navButton("Memory", new Runnable() {
+            @Override
+            public void run() {
+                startActivity(new Intent(MainActivity.this, MemoryActivity.class));
+            }
+        }));
+        row3.addView(navButton("Play", new Runnable() {
+            @Override
+            public void run() {
+                showPlay();
+            }
+        }));
+        row3.addView(navButton("Settings", new Runnable() {
             @Override
             public void run() {
                 startActivity(new Intent(MainActivity.this, SettingsActivity.class));
             }
         }));
-        row2.addView(navButton("\uD83D\uDCD4 Play", new Runnable() {
-            @Override
-            public void run() {
-                showMenu();
-            }
-        }));
-        panel.addView(row2);
+        panel.addView(row3);
         return panel;
     }
 
@@ -264,71 +317,46 @@ public class MainActivity extends Activity implements PetView.Listener {
         return tv;
     }
 
-    // -------------------------------------------------------------- play sheet
+    // -------------------------------------------------------------- play panel
 
-    private void buildMenu(FrameLayout root) {
-        menuOverlay = new FrameLayout(this);
-        menuOverlay.setBackgroundColor(0xAA2B1B00);
-        menuOverlay.setVisibility(View.GONE);
-        menuOverlay.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                hideMenu();
-            }
-        });
-
-        ScrollView sv = new ScrollView(this);
-        sv.setVerticalScrollBarEnabled(true);
-        menuPanel = new LinearLayout(this);
-        menuPanel.setOrientation(LinearLayout.VERTICAL);
-        menuPanel.setPadding(dp(14), dp(10), dp(14), dp(20));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadii(new float[]{dp(22), dp(22), dp(22), dp(22), 0, 0, 0, 0});
-        bg.setColor(Ui.PANEL);
-        menuPanel.setBackground(bg);
-        menuPanel.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                // swallow taps so the sheet does not close
-            }
-        });
-        sv.addView(menuPanel, new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        FrameLayout.LayoutParams svLp = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT,
-                Gravity.BOTTOM);
-        svLp.topMargin = dp(70);
-        menuOverlay.addView(sv, svLp);
-        root.addView(menuOverlay, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        fillMenu();
+    /** Swaps the nav grid for the Play panel, in place. */
+    private void showPlay() {
+        fillPlay();
+        navPanel.setVisibility(View.GONE);
+        playScroll.setVisibility(View.VISIBLE);
+        playOpen = true;
     }
 
-    private void fillMenu() {
-        menuPanel.removeAllViews();
+    /** Swaps the Play panel back for the nav grid. */
+    private void showNav() {
+        playScroll.setVisibility(View.GONE);
+        navPanel.setVisibility(View.VISIBLE);
+        playOpen = false;
+    }
+
+    private void fillPlay() {
+        playContent.removeAllViews();
 
         // header
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(this);
-        title.setText("Golu's Playbook");
+        title.setText("Play");
         title.setTextSize(18f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(0xFF5A3E2B);
         header.addView(title, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView close = circleButton("X", 34);
-        close.setOnClickListener(new View.OnClickListener() {
+        TextView back = Ui.button(this, "Back", Ui.ACCENT);
+        back.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                hideMenu();
+                showNav();
             }
         });
-        header.addView(close, new LinearLayout.LayoutParams(dp(34), dp(34)));
-        menuPanel.addView(header);
+        header.addView(back, Ui.wrapWrap());
+        playContent.addView(header);
 
         // -------- look section
         sectionHeader("Look");
@@ -340,7 +368,7 @@ public class MainActivity extends Activity implements PetView.Listener {
                 pet.setLook(pet.getPalette(), 0, Math.min(pet.getOutfit(), PetView.OUTFIT_BOY.length - 1),
                         pet.getAccessory());
                 saveLook();
-                fillMenu();
+                fillPlay();
             }
         }));
         genderRow.addView(chip("Girl", pet.getGender() == 1, new Runnable() {
@@ -349,13 +377,13 @@ public class MainActivity extends Activity implements PetView.Listener {
                 pet.setLook(pet.getPalette(), 1, Math.min(pet.getOutfit(), PetView.OUTFIT_GIRL.length - 1),
                         pet.getAccessory());
                 saveLook();
-                fillMenu();
+                fillPlay();
             }
         }));
-        menuPanel.addView(genderRow);
+        playContent.addView(genderRow);
 
         // colours
-        menuPanel.addView(smallLabel("Colour"));
+        playContent.addView(smallLabel("Colour"));
         LinearLayout swatchRow = new LinearLayout(this);
         swatchRow.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < PetView.PALETTE.length; i++) {
@@ -372,7 +400,7 @@ public class MainActivity extends Activity implements PetView.Listener {
                 public void onClick(View v) {
                     pet.setLook(idx, pet.getGender(), pet.getOutfit(), pet.getAccessory());
                     saveLook();
-                    fillMenu();
+                    fillPlay();
                 }
             });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(30), dp(30));
@@ -380,16 +408,16 @@ public class MainActivity extends Activity implements PetView.Listener {
             lp.bottomMargin = dp(4);
             swatchRow.addView(dot, lp);
         }
-        menuPanel.addView(swatchRow);
+        playContent.addView(swatchRow);
 
         // outfits
-        menuPanel.addView(smallLabel("Clothes"));
+        playContent.addView(smallLabel("Clothes"));
         LinearLayout outfitRow = null;
         for (int i = 0; i < pet.outfitCount(); i++) {
             if (i % 3 == 0) {
                 outfitRow = new LinearLayout(this);
                 outfitRow.setOrientation(LinearLayout.HORIZONTAL);
-                menuPanel.addView(outfitRow);
+                playContent.addView(outfitRow);
             }
             final int idx = i;
             outfitRow.addView(chip(pet.outfitName(i), pet.getOutfit() == i, new Runnable() {
@@ -397,19 +425,19 @@ public class MainActivity extends Activity implements PetView.Listener {
                 public void run() {
                     pet.setLook(pet.getPalette(), pet.getGender(), idx, pet.getAccessory());
                     saveLook();
-                    fillMenu();
+                    fillPlay();
                 }
             }));
         }
 
         // accessories
-        menuPanel.addView(smallLabel("Accessory"));
+        playContent.addView(smallLabel("Accessory"));
         LinearLayout accRow = null;
         for (int i = 0; i < PetView.ACCESSORY_NAME.length; i++) {
             if (i % 3 == 0) {
                 accRow = new LinearLayout(this);
                 accRow.setOrientation(LinearLayout.HORIZONTAL);
-                menuPanel.addView(accRow);
+                playContent.addView(accRow);
             }
             final int idx = i;
             accRow.addView(chip(PetView.ACCESSORY_NAME[i], pet.getAccessory() == i, new Runnable() {
@@ -417,7 +445,7 @@ public class MainActivity extends Activity implements PetView.Listener {
                 public void run() {
                     pet.setLook(pet.getPalette(), pet.getGender(), pet.getOutfit(), idx);
                     saveLook();
-                    fillMenu();
+                    fillPlay();
                 }
             }));
         }
@@ -429,13 +457,13 @@ public class MainActivity extends Activity implements PetView.Listener {
             if (i % 3 == 0) {
                 row = new LinearLayout(this);
                 row.setOrientation(LinearLayout.HORIZONTAL);
-                menuPanel.addView(row);
+                playContent.addView(row);
             }
             final int a = PLAY_ACTIONS[i];
             row.addView(chip(Acts.LABEL[a], pet.getActivity() == a, new Runnable() {
                 @Override
                 public void run() {
-                    hideMenu();
+                    // the panel stays open so actions can be tapped one after another
                     doActivity(a);
                 }
             }));
@@ -449,7 +477,7 @@ public class MainActivity extends Activity implements PetView.Listener {
         tv.setTypeface(Typeface.DEFAULT_BOLD);
         tv.setTextColor(0xFFB26A00);
         tv.setPadding(0, dp(12), 0, dp(4));
-        menuPanel.addView(tv);
+        playContent.addView(tv);
     }
 
     private TextView smallLabel(String s) {
@@ -483,22 +511,6 @@ public class MainActivity extends Activity implements PetView.Listener {
         lp.bottomMargin = dp(6);
         tv.setLayoutParams(lp);
         return tv;
-    }
-
-    private void showMenu() {
-        fillMenu();
-        menuOverlay.setVisibility(View.VISIBLE);
-        menuOverlay.setAlpha(0f);
-        menuOverlay.animate().alpha(1f).setDuration(160).start();
-    }
-
-    private void hideMenu() {
-        menuOverlay.animate().alpha(0f).setDuration(140).withEndAction(new Runnable() {
-            @Override
-            public void run() {
-                menuOverlay.setVisibility(View.GONE);
-            }
-        }).start();
     }
 
     private void saveLook() {

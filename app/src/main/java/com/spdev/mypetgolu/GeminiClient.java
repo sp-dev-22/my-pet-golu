@@ -114,11 +114,11 @@ public final class GeminiClient {
                                 final String systemPrompt, final JSONArray contents,
                                 final boolean jsonMode, final Callback cb) {
         if (apiKey == null || apiKey.trim().isEmpty()) {
-            postError(cb, "No API key. Add your Gemini API key in Settings first.");
+            postError(cb, "No API key.\n\nAdd your Gemini API key in Settings first.");
             return;
         }
         if (model == null || model.trim().isEmpty()) {
-            postError(cb, "No model selected. Pick a model in Settings.");
+            postError(cb, "No model selected.\n\nPick a model in Settings.");
             return;
         }
         new Thread(new Runnable() {
@@ -136,8 +136,24 @@ public final class GeminiClient {
                             Thread.sleep(2000);
                         } catch (InterruptedException ignored) {
                         }
+                    } catch (java.net.SocketTimeoutException e) {
+                        // slow response, not a dead network: retry once
+                        err = detail("Timed out", model, -1,
+                                "Gemini took too long to reply (over 5 minutes). "
+                                        + "Try again, or attach fewer / smaller files.");
+                        try {
+                            Thread.sleep(2000);
+                        } catch (InterruptedException ignored) {
+                        }
+                    } catch (java.io.IOException e) {
+                        // connect failure / dropped connection: retry once
+                        err = describeFailure(model, e);
+                        try {
+                            Thread.sleep(2000);
+                        } catch (InterruptedException ignored) {
+                        }
                     } catch (Exception e) {
-                        err = friendly(e);
+                        err = describeFailure(model, e);
                         break;
                     }
                 }
@@ -177,8 +193,9 @@ public final class GeminiClient {
             conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
-            conn.setConnectTimeout(30000);
-            conn.setReadTimeout(120000);
+            // generous timeouts: big PDFs and slow networks need room
+            conn.setConnectTimeout(45000);
+            conn.setReadTimeout(300000);
             conn.setDoOutput(true);
             byte[] payload = body.toString().getBytes("UTF-8");
             OutputStream os = conn.getOutputStream();
@@ -191,10 +208,10 @@ public final class GeminiClient {
                     ? conn.getInputStream() : conn.getErrorStream();
             String raw = readAll(in);
             if (code == 429 || code == 503) {
-                throw new Retryable("Gemini is busy (HTTP " + code + "). Please try again.");
+                throw new Retryable(detail(problemFor(code), model, code, errorMessage(raw)));
             }
             if (code < 200 || code >= 300) {
-                throw new Exception("Gemini error (HTTP " + code + "): " + errorMessage(raw));
+                throw new Exception(detail(problemFor(code), model, code, errorMessage(raw)));
             }
             return extractText(new JSONObject(raw));
         } finally {
@@ -244,17 +261,54 @@ public final class GeminiClient {
         return b.toString();
     }
 
-    private static String friendly(Exception e) {
+    /** Short human label for an HTTP status. */
+    private static String problemFor(int code) {
+        if (code == 400) return "Bad request";
+        if (code == 401 || code == 403) return "API key problem";
+        if (code == 404) return "Model not found";
+        if (code == 429) return "Quota / rate limit";
+        if (code == 500 || code == 502 || code == 503) return "Gemini is busy";
+        return "Gemini error";
+    }
+
+    /**
+     * One detailed, readable error block: model, HTTP status, what kind of
+     * problem it is, and Gemini's own message. Callers show it in a dialog.
+     */
+    private static String detail(String problem, String model, int code, String message) {
+        StringBuilder b = new StringBuilder();
+        b.append("Problem: ").append(problem).append("\n");
+        b.append("Model: ").append(model == null ? "-" : model).append("\n");
+        if (code > 0) b.append("Status: HTTP ").append(code).append("\n");
+        if (message != null && !message.trim().isEmpty()) {
+            String m = message.trim();
+            if (m.length() > 600) m = m.substring(0, 600) + "...";
+            b.append("\n").append(m);
+        }
+        return b.toString();
+    }
+
+    /** Classifies a thrown failure (network / key / timeout) into a detail block. */
+    private static String describeFailure(String model, Exception e) {
         String m = e.getMessage();
-        if (m == null) return "Network error. Check your internet connection.";
-        if (m.contains("UnknownHost") || m.contains("ConnectException")
-                || m.contains("SocketTimeout") || m.contains("Unable to resolve")) {
-            return "No internet connection. Check your network and try again.";
+        if (m == null) {
+            return detail("Unknown error", model, -1, e.toString());
         }
+        if (m.startsWith("Problem: ")) return m; // already detailed
         if (m.contains("API key not valid") || m.contains("API_KEY_INVALID")) {
-            return "Your Gemini API key looks wrong. Check it in Settings.";
+            return detail("API key problem", model, -1,
+                    "Your Gemini API key looks wrong. Check it in Settings.\n\n" + m);
         }
-        return m;
+        if (m.contains("UnknownHost") || m.contains("Unable to resolve")) {
+            return detail("No connection", model, -1,
+                    "Could not reach Google. Check your internet connection and try again.\n\n" + m);
+        }
+        if (m.contains("ConnectException") || m.contains("Connection reset")
+                || m.contains("Broken pipe") || m.contains("SocketException")) {
+            return detail("No connection", model, -1,
+                    "The connection to Google dropped. Check your network and try again.\n\n" + m);
+        }
+        return detail("Gemini error", model, -1, m);
     }
 
     private static void postOk(final Callback cb, final String text) {
