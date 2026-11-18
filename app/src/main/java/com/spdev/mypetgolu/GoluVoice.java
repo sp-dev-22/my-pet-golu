@@ -133,13 +133,55 @@ public class GoluVoice {
     /** Speaks, replacing anything currently spoken. */
     public void speak(String text, String utteranceId) {
         if (!ttsReady || tts == null) return;
-        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId);
+        String clean = cleanForSpeech(text);
+        if (clean.isEmpty()) {
+            // nothing speakable: still report completion so callers that
+            // wait for onDone (e.g. Practice) move on instead of hanging
+            postTtsDone(utteranceId);
+            return;
+        }
+        tts.speak(clean, TextToSpeech.QUEUE_FLUSH, null, utteranceId);
     }
 
     /** Queues speech after anything currently spoken. */
     public void speakQueued(String text, String utteranceId) {
         if (!ttsReady || tts == null) return;
-        tts.speak(text, TextToSpeech.QUEUE_ADD, null, utteranceId);
+        String clean = cleanForSpeech(text);
+        if (clean.isEmpty()) {
+            postTtsDone(utteranceId);
+            return;
+        }
+        tts.speak(clean, TextToSpeech.QUEUE_ADD, null, utteranceId);
+    }
+
+    /**
+     * Strips markdown / formatting artefacts from text before it is spoken,
+     * so the TTS engine reads clean natural sentences instead of saying
+     * "star star" or "hash" for **bold** or ## headers. Displayed text is
+     * never touched - only the spoken copy goes through here.
+     */
+    public static String cleanForSpeech(String text) {
+        if (text == null) return "";
+        String s = text;
+        // markdown links [text](url) -> text
+        s = s.replaceAll("\\[([^\\]]+)\\]\\([^\\)]+\\)", "$1");
+        // ## headers -> plain text
+        s = s.replaceAll("(?m)^\\s{0,3}#{1,6}\\s*", "");
+        // **bold**, __bold__, *italic*, _italic_, `code` -> inner text
+        s = s.replaceAll("\\*\\*(.*?)\\*\\*", "$1");
+        s = s.replaceAll("__(.*?)__", "$1");
+        s = s.replaceAll("\\*(.*?)\\*", "$1");
+        s = s.replaceAll("_(.*?)_", "$1");
+        s = s.replaceAll("`{1,3}(.*?)`{1,3}", "$1");
+        // any stray formatting characters left over
+        s = s.replace("*", "").replace("#", "").replace("`", "").replace("_", "");
+        // "%" is spoken as "percent" ("50%" -> "50 percent")
+        s = s.replace("%", " percent ");
+        // bullet markers at line starts
+        s = s.replaceAll("(?m)^\\s*[-\\u2022]\\s+", "");
+        // collapse whitespace and line breaks into single spaces
+        s = s.replaceAll("\\s+", " ");
+        return s.trim();
     }
 
     public void stopTts() {
@@ -202,8 +244,9 @@ public class GoluVoice {
     }
 
     public void startListening(String languageTag, SttListener listener) {
-        continuous = false;
-        main.removeCallbacks(restartRunnable);
+        // reset first: a stale recognizer from an earlier pass can still
+        // deliver late errors that would fight the new session
+        cancelListening();
         this.sttListener = listener;
         if (!isSttAvailable(ctx)) {
             postSttError("Speech recognition is not available on this device.");
@@ -221,6 +264,13 @@ public class GoluVoice {
      * equal the user's set answer time.
      */
     public void startListeningUntil(String languageTag, long durationMs, SttListener listener) {
+        // reset first: a stale recognizer from an earlier question can still
+        // deliver a late ERROR_CLIENT after its cancel() - if that lands
+        // after the next question starts, its restart loop calls
+        // startListening while the new session is already listening, the
+        // recognizer goes BUSY and the mic never recovers (the "mic timeout
+        // returns after Q1" bug). A fresh recognizer per pass kills it.
+        cancelListening();
         continuous = true;
         listenDeadline = System.currentTimeMillis() + Math.max(1000, durationMs);
         listenLang = languageTag;
@@ -323,6 +373,11 @@ public class GoluVoice {
     /** Starts one listen pass with long silence windows (fewer early cutoffs). */
     private void beginListening(String languageTag) {
         if (recognizer == null) return;
+        if (listening) {
+            // already listening (e.g. a restart racing a fresh session):
+            // a second startListening would go BUSY and kill the live pass
+            return;
+        }
         Intent i = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag);
@@ -345,22 +400,21 @@ public class GoluVoice {
         }
     }
 
+    /**
+     * Stops listening and destroys the recognizer. Destroying (not just
+     * cancel()) is deliberate: a cancelled recognizer can still deliver a
+     * late onError, and that stale callback would restart or break the
+     * NEXT question's listening pass. The next startListening* call creates
+     * a fresh recognizer, so every pass starts from a clean state.
+     */
     public void cancelListening() {
         continuous = false;
         main.removeCallbacks(restartRunnable);
-        if (recognizer != null && listening) {
+        if (recognizer != null) {
             try {
                 recognizer.cancel();
             } catch (Exception ignored) {
             }
-        }
-        listening = false;
-    }
-
-    public void destroyStt() {
-        continuous = false;
-        main.removeCallbacks(restartRunnable);
-        if (recognizer != null) {
             try {
                 recognizer.destroy();
             } catch (Exception ignored) {
@@ -368,6 +422,10 @@ public class GoluVoice {
             recognizer = null;
         }
         listening = false;
+    }
+
+    public void destroyStt() {
+        cancelListening();
     }
 
     private void postSttResult(final String text) {

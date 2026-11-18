@@ -18,7 +18,7 @@ public final class Prefs {
 
     private static final String NAME = "golu_study";
 
-    /** Current preset models (v3.1). Old presets were removed (see OLD_PRESETS). */
+    /** Current preset models (v0.4.0). Old presets were removed (see OLD_PRESETS). */
     public static final String[] DEFAULT_MODELS = {
             "gemini-3.5-flash-lite",
             "gemini-3.6-flash",
@@ -34,7 +34,7 @@ public final class Prefs {
 
     private static final String K_MODELS_MIGRATED = "models_migrated_v31";
     private static final String K_SKILLS_SEEDED = "skills_seeded";
-    private static final String K_ASKING_TTS = "asking_tts";
+    private static final String K_PRACTICE_MIC_TAP = "practice_mic_tap";
 
     private static final String K_API_KEY = "api_key";
     private static final String K_MODEL_AGENT = "model_agent";
@@ -264,13 +264,16 @@ public final class Prefs {
         sp(c).edit().putBoolean(K_SKILLS_SEEDED, true).apply();
     }
 
-    /** Voice (TTS) on/off in Asking mode. */
-    public static boolean isAskingTtsOn(Context c) {
-        return sp(c).getBoolean(K_ASKING_TTS, true);
+    /**
+     * Practice mic mode: false = AUTO (listens on its own when a question is
+     * asked), true = TAP (the user taps the mic button to speak the answer).
+     */
+    public static boolean isPracticeMicTap(Context c) {
+        return sp(c).getBoolean(K_PRACTICE_MIC_TAP, false);
     }
 
-    public static void setAskingTtsOn(Context c, boolean on) {
-        sp(c).edit().putBoolean(K_ASKING_TTS, on).apply();
+    public static void setPracticeMicTap(Context c, boolean tap) {
+        sp(c).edit().putBoolean(K_PRACTICE_MIC_TAP, tap).apply();
     }
 
     public static boolean isConvMicOn(Context c) {

@@ -11,7 +11,6 @@ import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.os.SystemClock;
 import android.util.AttributeSet;
-import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -115,6 +114,16 @@ public class PetView extends View {
 
     // lip-sync: true while TTS is speaking (mouth opens and closes)
     private boolean speaking = false;
+
+    // compact header mode (Talk / Practice): the pet fills the short header
+    // instead of standing 118dp up with empty sky below him
+    private boolean compact = false;
+
+    /** Compact header mode: pet fills the view, feet near the bottom edge. */
+    public void setCompact(boolean c) {
+        compact = c;
+        invalidate();
+    }
 
     // geometry
     private float w, h, cx, floorY, R, bodyCy, headCy, headR;
@@ -355,9 +364,15 @@ public class PetView extends View {
         h = getHeight();
         float sidePad = Math.min(w * 0.08f, 34f * density);
         float usable = Math.max(120f, w - 2f * sidePad);
-        R = Math.min(usable * 0.30f, h * 0.132f);
+        if (compact) {
+            // short header: pet fills the view, feet near the bottom edge
+            R = Math.min(usable * 0.30f, h * 0.26f);
+            floorY = h - 10f * density;
+        } else {
+            R = Math.min(usable * 0.30f, h * 0.132f);
+            floorY = h - 118f * density;
+        }
         cx = w / 2f;
-        floorY = h - 118f * density;
         bodyCy = floorY - R * 0.92f;
         headR = R * 0.86f;
         headCy = bodyCy - R * 0.92f;
@@ -1697,16 +1712,13 @@ public class PetView extends View {
                 long dt = SystemClock.uptimeMillis() - downTime;
                 if (longFired) return true;
                 if (Math.abs(dy) > 70f * density && Math.abs(dy) > Math.abs(dx) && dt < 700) {
-                    performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                     if (listener != null) {
                         if (dy < 0) listener.onSwipeUp();
                         else listener.onSwipeDown();
                     }
                 } else if (dt < 320 && Math.abs(dx) < 40f * density && Math.abs(dy) < 40f * density) {
-                    performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                     if (listener != null) listener.onPetTapped();
                 } else if (dt >= 600) {
-                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                     if (listener != null) listener.onPetLongPressed();
                 }
                 return true;

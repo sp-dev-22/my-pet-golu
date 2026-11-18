@@ -123,9 +123,12 @@ public class ConversationActivity extends Activity {
         LinearLayout root = Ui.column(this);
         root.addView(Ui.topBar(this, "Talk"));
 
+        // compact header: the pet fills the short header instead of leaving
+        // a large empty sky area below him - the freed space goes to chatting
         pet = new PetView(this);
+        pet.setCompact(true);
         root.addView(pet, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 200)));
+                ViewGroup.LayoutParams.MATCH_PARENT, Ui.dp(this, 140)));
 
         status = new TextView(this);
         status.setText("Talk to Golu - tap the mic or type below");

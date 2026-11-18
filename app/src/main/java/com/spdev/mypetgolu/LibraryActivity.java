@@ -35,7 +35,8 @@ import java.util.TreeMap;
  * The Library: everything the AI created (quizzes, notes, flashcards,
  * one-liners, questions). Items live in folders (or unfiled). Filter by
  * kind and folder, search by title, tap to view, long-press to move or
- * delete. Quizzes can be opened straight into Quiz mode ("Practice").
+ * delete. Quizzes, flashcards, one-liners and questions can be opened
+ * straight into Practice mode ("Practice").
  * "Manage" asks the helper model to organise unfiled items into folders.
  */
 public class LibraryActivity extends Activity {
@@ -265,9 +266,12 @@ public class LibraryActivity extends Activity {
     }
 
     private void showItem(final AiDb.Item item) {
-        if (AiDb.KIND_QUIZ.equals(item.kind)) {
-            List<QuizUtil.Question> qs = QuizUtil.parseQuiz(item.content);
-            String text = qs.isEmpty() ? item.content : QuizUtil.displayAll(qs);
+        if (PracticeUtil.isPracticableKind(item.kind)) {
+            String text = item.content;
+            if (AiDb.KIND_QUIZ.equals(item.kind)) {
+                List<QuizUtil.Question> qs = QuizUtil.parseQuiz(item.content);
+                if (!qs.isEmpty()) text = QuizUtil.displayAll(qs);
+            }
             TextView tv = new TextView(this);
             tv.setText(text);
             tv.setTextSize(14f);
@@ -282,7 +286,7 @@ public class LibraryActivity extends Activity {
                         @Override
                         public void onClick(DialogInterface d, int w) {
                             Intent i = new Intent(LibraryActivity.this, AskingActivity.class);
-                            i.putExtra("library_quiz_id", item.id);
+                            i.putExtra("library_item_id", item.id);
                             startActivity(i);
                         }
                     })

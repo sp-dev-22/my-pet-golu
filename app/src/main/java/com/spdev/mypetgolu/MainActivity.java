@@ -6,8 +6,6 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -17,39 +15,24 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-import java.util.ArrayDeque;
-
 /**
- * Home screen of Golu Study: Golu the pet companion on top and a bottom
- * panel with the study screens. Tapping Play swaps the navigation buttons
- * in place for Golu's look and fun actions (with a Back button) - no
- * separate Play screen to open and close again and again.
+ * Home screen of Golu Study Buddy: Golu the companion on top, fully
+ * visible above the bottom panel, and a bottom panel with the study
+ * screens. Tapping Buddy swaps the navigation buttons in place for
+ * Golu's look (decoration only: boy/girl, colours, clothes, glasses) -
+ * no separate screen to open and close again and again.
+ * The Play actions (Sleep, Laugh, ...) were removed in v0.4.0: Golu is
+ * a calm study buddy now, not a toy.
  */
 public class MainActivity extends Activity implements PetView.Listener {
 
-    /** Trimmed set of fun actions shown in the Play panel. */
-    private static final int[] PLAY_ACTIONS = {
-            Acts.SMILE, Acts.LAUGH, Acts.DANCE, Acts.SING, Acts.JUMP,
-            Acts.TICKLE, Acts.SLEEP, Acts.WAKEUP, Acts.NAMASTE, Acts.LOVE,
-            Acts.CRY, Acts.ANGRY, Acts.SHY, Acts.SURPRISED, Acts.BALL,
-            Acts.KITE, Acts.TEDDY, Acts.BOOK, Acts.GUITAR, Acts.YOGA
-    };
-
     private PetView pet;
     private TextView status;
-    private TextView soundButton;
 
     private LinearLayout navPanel;
-    private ScrollView playScroll;
-    private LinearLayout playContent;
-    private boolean playOpen = false;
-
-    private GoluVoice voice;
-    private boolean ttsOn = true;
-
-    private final ArrayDeque<Long> pokes = new ArrayDeque<>();
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private Runnable sleepRunnable;
+    private ScrollView buddyScroll;
+    private LinearLayout buddyContent;
+    private boolean buddyOpen = false;
 
     // ------------------------------------------------------------- lifecycle
 
@@ -75,36 +58,12 @@ public class MainActivity extends Activity implements PetView.Listener {
         pet.setListener(this);
         pet.setLook(Prefs.getPalette(this), Prefs.getGender(this),
                 Prefs.getOutfit(this), Prefs.getAccessory(this));
-
-        voice = new GoluVoice(this);
-        voice.initTts(Prefs.getTtsLocale(this), null);
-        voice.setTtsListener(new GoluVoice.TtsListener() {
-            @Override
-            public void onStart(String id) {
-                pet.setSpeaking(true);
-            }
-
-            @Override
-            public void onDone(String id) {
-                pet.setSpeaking(false);
-            }
-
-            @Override
-            public void onError(String id) {
-                pet.setSpeaking(false);
-            }
-        });
-
-        scheduleAutoSleep();
-        pet.setActivity(Acts.NAMASTE);
-        status.setText("Golu");
+        status.setText("Golu is happy");
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        // the TTS language may have changed in Settings
-        if (voice != null) voice.setTtsLanguage(Prefs.getTtsLocale(this));
         if (pet != null) {
             pet.setLook(Prefs.getPalette(this), Prefs.getGender(this),
                     Prefs.getOutfit(this), Prefs.getAccessory(this));
@@ -112,15 +71,8 @@ public class MainActivity extends Activity implements PetView.Listener {
     }
 
     @Override
-    protected void onDestroy() {
-        handler.removeCallbacksAndMessages(null);
-        if (voice != null) voice.shutdownAll();
-        super.onDestroy();
-    }
-
-    @Override
     public void onBackPressed() {
-        if (playOpen) {
+        if (buddyOpen) {
             showNav();
         } else {
             super.onBackPressed();
@@ -137,8 +89,20 @@ public class MainActivity extends Activity implements PetView.Listener {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Ui.BG);
 
+        // Column: the pet gets all the space ABOVE the bottom panel, so he
+        // is never hidden under the menu or buttons (he used to be drawn
+        // full-screen with the panel overlapping his lower body).
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+
         pet = new PetView(this);
-        root.addView(pet, new FrameLayout.LayoutParams(
+        column.addView(pet, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        column.addView(buildBottomArea(), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        root.addView(column, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         // status pill
@@ -156,32 +120,10 @@ public class MainActivity extends Activity implements PetView.Listener {
         slp.topMargin = dp(14);
         root.addView(status, slp);
 
-        // sound toggle (not persisted - just for this session)
-        soundButton = circleButton("\u266B", 38);
-        soundButton.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                ttsOn = !ttsOn;
-                soundButton.setText(ttsOn ? "\u266B" : "x");
-                soundButton.setAlpha(ttsOn ? 1f : 0.55f);
-                if (!ttsOn && voice != null) voice.stopTts();
-            }
-        });
-        FrameLayout.LayoutParams soundLp = new FrameLayout.LayoutParams(dp(38), dp(38),
-                Gravity.TOP | Gravity.END);
-        soundLp.topMargin = dp(10);
-        soundLp.rightMargin = dp(10);
-        root.addView(soundButton, soundLp);
-
-        // bottom panel: navigation grid, swapped in place by the Play panel
-        root.addView(buildBottomArea(), new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM));
-
         return root;
     }
 
-    /** Bottom area holding the nav grid and, hidden, the Play panel. */
+    /** Bottom area holding the nav grid and, hidden, the Buddy panel. */
     private LinearLayout buildBottomArea() {
         LinearLayout area = new LinearLayout(this);
         area.setOrientation(LinearLayout.VERTICAL);
@@ -194,18 +136,18 @@ public class MainActivity extends Activity implements PetView.Listener {
         navPanel = buildNavPanel();
         area.addView(navPanel);
 
-        playScroll = new ScrollView(this);
-        playScroll.setVerticalScrollBarEnabled(true);
-        playContent = new LinearLayout(this);
-        playContent.setOrientation(LinearLayout.VERTICAL);
-        playContent.setPadding(dp(4), 0, dp(4), dp(8));
-        playScroll.addView(playContent, new ViewGroup.LayoutParams(
+        buddyScroll = new ScrollView(this);
+        buddyScroll.setVerticalScrollBarEnabled(true);
+        buddyContent = new LinearLayout(this);
+        buddyContent.setOrientation(LinearLayout.VERTICAL);
+        buddyContent.setPadding(dp(4), 0, dp(4), dp(8));
+        buddyScroll.addView(buddyContent, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        int playHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.55);
-        playScroll.setLayoutParams(new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, playHeight));
-        playScroll.setVisibility(View.GONE);
-        area.addView(playScroll);
+        int buddyHeight = (int) (getResources().getDisplayMetrics().heightPixels * 0.55);
+        buddyScroll.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, buddyHeight));
+        buddyScroll.setVisibility(View.GONE);
+        area.addView(buddyScroll);
         return area;
     }
 
@@ -227,7 +169,7 @@ public class MainActivity extends Activity implements PetView.Listener {
                 startActivity(new Intent(MainActivity.this, ConversationActivity.class));
             }
         }));
-        row1.addView(navButton("Quiz", new Runnable() {
+        row1.addView(navButton("Practice", new Runnable() {
             @Override
             public void run() {
                 startActivity(new Intent(MainActivity.this, AskingActivity.class));
@@ -265,10 +207,10 @@ public class MainActivity extends Activity implements PetView.Listener {
                 startActivity(new Intent(MainActivity.this, MemoryActivity.class));
             }
         }));
-        row3.addView(navButton("Play", new Runnable() {
+        row3.addView(navButton("Buddy", new Runnable() {
             @Override
             public void run() {
-                showPlay();
+                showBuddy();
             }
         }));
         row3.addView(navButton("Settings", new Runnable() {
@@ -306,43 +248,33 @@ public class MainActivity extends Activity implements PetView.Listener {
         return tv;
     }
 
-    private TextView circleButton(String label, int sizeDp) {
-        TextView tv = new TextView(this);
-        tv.setText(label);
-        tv.setTextSize(13f);
-        tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setTextColor(0xFF7A4B00);
-        tv.setGravity(Gravity.CENTER);
-        tv.setBackground(Ui.pill(this, 0xF2FFFFFF, 0xFFE0A800, sizeDp / 2));
-        return tv;
-    }
+    // ------------------------------------------------------------ buddy panel
 
-    // -------------------------------------------------------------- play panel
-
-    /** Swaps the nav grid for the Play panel, in place. */
-    private void showPlay() {
-        fillPlay();
+    /** Swaps the nav grid for the Buddy panel, in place. */
+    private void showBuddy() {
+        fillBuddy();
         navPanel.setVisibility(View.GONE);
-        playScroll.setVisibility(View.VISIBLE);
-        playOpen = true;
+        buddyScroll.setVisibility(View.VISIBLE);
+        buddyOpen = true;
     }
 
-    /** Swaps the Play panel back for the nav grid. */
+    /** Swaps the Buddy panel back for the nav grid. */
     private void showNav() {
-        playScroll.setVisibility(View.GONE);
+        buddyScroll.setVisibility(View.GONE);
         navPanel.setVisibility(View.VISIBLE);
-        playOpen = false;
+        buddyOpen = false;
     }
 
-    private void fillPlay() {
-        playContent.removeAllViews();
+    /** Decoration only: boy/girl, colours, clothes, accessories. */
+    private void fillBuddy() {
+        buddyContent.removeAllViews();
 
         // header
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = new TextView(this);
-        title.setText("Play");
+        title.setText("Buddy");
         title.setTextSize(18f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(0xFF5A3E2B);
@@ -356,7 +288,7 @@ public class MainActivity extends Activity implements PetView.Listener {
             }
         });
         header.addView(back, Ui.wrapWrap());
-        playContent.addView(header);
+        buddyContent.addView(header);
 
         // -------- look section
         sectionHeader("Look");
@@ -368,7 +300,7 @@ public class MainActivity extends Activity implements PetView.Listener {
                 pet.setLook(pet.getPalette(), 0, Math.min(pet.getOutfit(), PetView.OUTFIT_BOY.length - 1),
                         pet.getAccessory());
                 saveLook();
-                fillPlay();
+                fillBuddy();
             }
         }));
         genderRow.addView(chip("Girl", pet.getGender() == 1, new Runnable() {
@@ -377,13 +309,13 @@ public class MainActivity extends Activity implements PetView.Listener {
                 pet.setLook(pet.getPalette(), 1, Math.min(pet.getOutfit(), PetView.OUTFIT_GIRL.length - 1),
                         pet.getAccessory());
                 saveLook();
-                fillPlay();
+                fillBuddy();
             }
         }));
-        playContent.addView(genderRow);
+        buddyContent.addView(genderRow);
 
         // colours
-        playContent.addView(smallLabel("Colour"));
+        buddyContent.addView(smallLabel("Colour"));
         LinearLayout swatchRow = new LinearLayout(this);
         swatchRow.setOrientation(LinearLayout.HORIZONTAL);
         for (int i = 0; i < PetView.PALETTE.length; i++) {
@@ -400,7 +332,7 @@ public class MainActivity extends Activity implements PetView.Listener {
                 public void onClick(View v) {
                     pet.setLook(idx, pet.getGender(), pet.getOutfit(), pet.getAccessory());
                     saveLook();
-                    fillPlay();
+                    fillBuddy();
                 }
             });
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(30), dp(30));
@@ -408,16 +340,16 @@ public class MainActivity extends Activity implements PetView.Listener {
             lp.bottomMargin = dp(4);
             swatchRow.addView(dot, lp);
         }
-        playContent.addView(swatchRow);
+        buddyContent.addView(swatchRow);
 
         // outfits
-        playContent.addView(smallLabel("Clothes"));
+        buddyContent.addView(smallLabel("Clothes"));
         LinearLayout outfitRow = null;
         for (int i = 0; i < pet.outfitCount(); i++) {
             if (i % 3 == 0) {
                 outfitRow = new LinearLayout(this);
                 outfitRow.setOrientation(LinearLayout.HORIZONTAL);
-                playContent.addView(outfitRow);
+                buddyContent.addView(outfitRow);
             }
             final int idx = i;
             outfitRow.addView(chip(pet.outfitName(i), pet.getOutfit() == i, new Runnable() {
@@ -425,19 +357,19 @@ public class MainActivity extends Activity implements PetView.Listener {
                 public void run() {
                     pet.setLook(pet.getPalette(), pet.getGender(), idx, pet.getAccessory());
                     saveLook();
-                    fillPlay();
+                    fillBuddy();
                 }
             }));
         }
 
         // accessories
-        playContent.addView(smallLabel("Accessory"));
+        buddyContent.addView(smallLabel("Accessory"));
         LinearLayout accRow = null;
         for (int i = 0; i < PetView.ACCESSORY_NAME.length; i++) {
             if (i % 3 == 0) {
                 accRow = new LinearLayout(this);
                 accRow.setOrientation(LinearLayout.HORIZONTAL);
-                playContent.addView(accRow);
+                buddyContent.addView(accRow);
             }
             final int idx = i;
             accRow.addView(chip(PetView.ACCESSORY_NAME[i], pet.getAccessory() == i, new Runnable() {
@@ -445,26 +377,7 @@ public class MainActivity extends Activity implements PetView.Listener {
                 public void run() {
                     pet.setLook(pet.getPalette(), pet.getGender(), pet.getOutfit(), idx);
                     saveLook();
-                    fillPlay();
-                }
-            }));
-        }
-
-        // -------- trimmed fun actions
-        sectionHeader("Play with Golu");
-        LinearLayout row = null;
-        for (int i = 0; i < PLAY_ACTIONS.length; i++) {
-            if (i % 3 == 0) {
-                row = new LinearLayout(this);
-                row.setOrientation(LinearLayout.HORIZONTAL);
-                playContent.addView(row);
-            }
-            final int a = PLAY_ACTIONS[i];
-            row.addView(chip(Acts.LABEL[a], pet.getActivity() == a, new Runnable() {
-                @Override
-                public void run() {
-                    // the panel stays open so actions can be tapped one after another
-                    doActivity(a);
+                    fillBuddy();
                 }
             }));
         }
@@ -477,7 +390,7 @@ public class MainActivity extends Activity implements PetView.Listener {
         tv.setTypeface(Typeface.DEFAULT_BOLD);
         tv.setTextColor(0xFFB26A00);
         tv.setPadding(0, dp(12), 0, dp(4));
-        playContent.addView(tv);
+        buddyContent.addView(tv);
     }
 
     private TextView smallLabel(String s) {
@@ -518,90 +431,36 @@ public class MainActivity extends Activity implements PetView.Listener {
                 pet.getOutfit(), pet.getAccessory());
     }
 
-    // --------------------------------------------------------------- actions
+    // ------------------------------------------------------- pet interaction
 
-    private void doActivity(int a) {
-        if (a == Acts.SLEEP) {
-            if (sleepRunnable != null) handler.removeCallbacks(sleepRunnable);
-            pet.setActivity(Acts.SLEEP);
-            speak(Acts.SLEEP);
-            return;
-        }
-        if (pet.isSleeping() && a != Acts.WAKEUP) {
-            pet.setActivity(Acts.WAKEUP);
-            speak(Acts.WAKEUP);
-            scheduleAutoSleep();
-            return;
-        }
-        pet.setActivity(a);
-        speak(a);
-        scheduleAutoSleep();
-    }
-
-    private void speak(int a) {
-        if (voice == null || !voice.isTtsReady() || !ttsOn) return;
-        if (a < 0 || a >= Acts.SAY_EN.length) return;
-        String line = "hi".equals(Prefs.getTtsLang(this)) ? Acts.SAY_HI[a] : Acts.SAY_EN[a];
-        voice.speak(line, "golu");
-    }
-
-    @Override
-    public void onActivityChanged(int act) {
-        if (act == Acts.IDLE) status.setText("Golu is happy");
-        else status.setText("Golu \u00B7 " + Acts.LABEL[act]);
-    }
-
-    // ------------------------------------------------------------- gestures
+    // The Play actions were removed in v0.4.0: taps, long-presses and
+    // swipes on Golu no longer trigger actions. He stays a calm companion
+    // (idle animation, blinking, looking around) and speaks with lip-sync
+    // in Talk and Practice. The listener methods stay because PetView
+    // still calls them.
 
     @Override
     public void onPetTapped() {
-        long now = System.currentTimeMillis();
-        pokes.addLast(now);
-        while (!pokes.isEmpty() && now - pokes.peekFirst() > 4500) pokes.pollFirst();
-
-        if (pet.isSleeping()) {
-            pet.setActivity(Acts.ANGRY);
-            speak(Acts.ANGRY);
-            scheduleAutoSleep();
-            return;
-        }
-
-        int n = pokes.size();
-        int a = n <= 1 ? Acts.SMILE : (n == 2 ? Acts.LAUGH : Acts.ANGRY);
-        pet.setActivity(a);
-        speak(a);
-        scheduleAutoSleep();
+        // no action
     }
 
     @Override
     public void onPetLongPressed() {
-        pet.setActivity(Acts.TICKLE);
-        speak(Acts.TICKLE);
-        scheduleAutoSleep();
+        // no action
     }
 
     @Override
     public void onSwipeUp() {
-        pet.setActivity(Acts.JUMP);
-        speak(Acts.JUMP);
-        scheduleAutoSleep();
+        // no action
     }
 
     @Override
     public void onSwipeDown() {
-        doActivity(Acts.SLEEP);
+        // no action
     }
 
-    private void scheduleAutoSleep() {
-        if (sleepRunnable == null) {
-            sleepRunnable = new Runnable() {
-                @Override
-                public void run() {
-                    if (!pet.isSleeping()) pet.setActivity(Acts.SLEEP);
-                }
-            };
-        }
-        handler.removeCallbacks(sleepRunnable);
-        handler.postDelayed(sleepRunnable, 120000);
+    @Override
+    public void onActivityChanged(int act) {
+        status.setText("Golu is happy");
     }
 }

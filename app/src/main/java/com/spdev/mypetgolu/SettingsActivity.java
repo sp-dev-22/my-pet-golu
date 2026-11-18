@@ -81,7 +81,7 @@ public class SettingsActivity extends Activity {
                 pickModel(0);
             }
         }));
-        body.addView(row("Quiz model", Prefs.getAskingModel(this), new View.OnClickListener() {
+        body.addView(row("Practice model", Prefs.getAskingModel(this), new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 pickModel(1);
@@ -137,8 +137,8 @@ public class SettingsActivity extends Activity {
             }
         }));
 
-        // ------------------------------------------------------------------ quiz
-        body.addView(Ui.section(this, "Quiz"));
+        // -------------------------------------------------------------- practice
+        body.addView(Ui.section(this, "Practice"));
         body.addView(row("Answer time", String.valueOf(Prefs.getQuizTimeSec(this)),
                 new View.OnClickListener() {
                     @Override
@@ -251,7 +251,7 @@ public class SettingsActivity extends Activity {
 
         // ----------------------------------------------------------------- about
         body.addView(Ui.section(this, "About"));
-        body.addView(note("Golu Study 3.1 - your study buddy. Chats, library, files and memory "
+        body.addView(note("Golu Study Buddy 0.4.0 - your study buddy. Chats, library, files and memory "
                 + "stay on your device; only your messages and attached files go to Gemini."));
     }
 
