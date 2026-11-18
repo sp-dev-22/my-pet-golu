@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
@@ -30,6 +31,9 @@ import java.util.Locale;
  */
 public class MemoryActivity extends Activity {
 
+    private static final int REQ_EXPORT = 2101;
+    private static final int REQ_IMPORT = 2102;
+
     private static final String SUGGEST_SYSTEM =
             "You are a memory assistant. Read the chat and extract up to 5 short facts "
                     + "about the student (name, subjects, exam, goals, likes). Reply ONLY with "
@@ -42,6 +46,7 @@ public class MemoryActivity extends Activity {
     private FactAdapter adapter;
     private TextView toggleBtn;
     private TextView suggestBtn;
+    private int pendingExportFormat = DataPort.FORMAT_JSON;
     private boolean destroyed = false;
 
     @Override
@@ -107,6 +112,32 @@ public class MemoryActivity extends Activity {
         });
         root.addView(suggestBtn);
 
+        // export / import row
+        LinearLayout portRow = new LinearLayout(this);
+        portRow.setOrientation(LinearLayout.HORIZONTAL);
+        portRow.setPadding(Ui.dp(this, 10), Ui.dp(this, 4), Ui.dp(this, 10), Ui.dp(this, 4));
+        TextView exportBtn = Ui.button(this, "Export", Ui.BLUE);
+        exportBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                onExport();
+            }
+        });
+        LinearLayout.LayoutParams expLp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        expLp.rightMargin = Ui.dp(this, 6);
+        portRow.addView(exportBtn, expLp);
+        TextView importBtn = Ui.button(this, "Import", Ui.GREEN);
+        importBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                DataPort.launchOpen(MemoryActivity.this, REQ_IMPORT);
+            }
+        });
+        portRow.addView(importBtn, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(portRow, Ui.matchWrap());
+
         listView = new ListView(this);
         listView.setDivider(null);
         listView.setDividerHeight(0);
@@ -155,6 +186,47 @@ public class MemoryActivity extends Activity {
     protected void onDestroy() {
         destroyed = true;
         super.onDestroy();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        final Uri uri = data.getData();
+        if (requestCode == REQ_EXPORT) {
+            DataPort.runExport(this, DataPort.TYPE_MEMORY, "memory", "memories",
+                    pendingExportFormat, uri, null);
+        } else if (requestCode == REQ_IMPORT) {
+            DataPort.runImport(this, DataPort.TYPE_MEMORY, uri,
+                    new DataPort.ImportDone() {
+                        @Override
+                        public void onImported(DataPort.Result res) {
+                            if (res.ok) {
+                                Ui.showText(MemoryActivity.this, "Import finished", res.message);
+                                refresh();
+                            } else {
+                                Ui.showErrorDialog(MemoryActivity.this, "Import failed", res.error);
+                            }
+                        }
+                    });
+        }
+    }
+
+    private void onExport() {
+        if (facts == null || facts.isEmpty()) {
+            Ui.toast(this, "No memories to export yet");
+            return;
+        }
+        Ui.singleChoice(this, "Export memory as", new String[]{"JSON", "PDF", "ZIP"}, 0,
+                new Ui.ChoiceCallback() {
+                    @Override
+                    public void onChoice(int index) {
+                        pendingExportFormat = index;
+                        DataPort.launchCreate(MemoryActivity.this, REQ_EXPORT,
+                                DataPort.exportFileName("memory", DataPort.formatExt(index)),
+                                DataPort.formatMime(index));
+                    }
+                });
     }
 
     private void refreshToggle() {

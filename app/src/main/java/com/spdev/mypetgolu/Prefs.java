@@ -3,6 +3,8 @@ package com.spdev.mypetgolu;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -18,7 +20,7 @@ public final class Prefs {
 
     private static final String NAME = "golu_study";
 
-    /** Current preset models (v0.4.0). Old presets were removed (see OLD_PRESETS). */
+    /** Current preset models (v0.5.0). Old presets were removed (see OLD_PRESETS). */
     public static final String[] DEFAULT_MODELS = {
             "gemini-3.5-flash-lite",
             "gemini-3.6-flash",
@@ -352,6 +354,79 @@ public final class Prefs {
     /** Clears everything except the API key choice is left to the caller. */
     public static void clearAll(Context c) {
         sp(c).edit().clear().apply();
+    }
+
+    // ------------------------------------------------------- backup / restore
+
+    /**
+     * All settings for a backup, as JSON. The Gemini API key is NEVER
+     * included - it stays on the device and the user re-enters it after
+     * a restore. If a new setting is added to this file, add it here too.
+     */
+    public static JSONObject exportSettings(Context c) {
+        JSONObject o = new JSONObject();
+        try {
+            SharedPreferences p = sp(c);
+            o.put("models_saved", p.getString(K_MODELS_SAVED, ""));
+            o.put("model_agent", p.getString(K_MODEL_AGENT, "gemini-3.6-flash"));
+            o.put("model_asking", p.getString(K_MODEL_ASKING, "gemini-3.6-flash"));
+            o.put("model_convo", p.getString(K_MODEL_CONVO, "gemini-3.5-flash-lite"));
+            o.put("model_bg", p.getString(K_MODEL_BG, "gemini-3.5-flash-lite"));
+            o.put("tts_lang", p.getString(K_TTS_LANG, "hi"));
+            o.put("stt_lang", p.getString(K_STT_LANG, "hi"));
+            o.put("quiz_time_sec", p.getInt(K_QUIZ_TIME, 30));
+            o.put("memory_enabled", p.getBoolean(K_MEMORY_ON, true));
+            o.put("conv_mic", p.getBoolean(K_CONV_MIC, true));
+            o.put("conv_tts", p.getBoolean(K_CONV_TTS, true));
+            o.put("conv_stt", p.getBoolean(K_CONV_STT, true));
+            o.put("reminder_on", p.getBoolean(K_REMINDER_ON, false));
+            o.put("reminder_hour", p.getInt(K_REMINDER_HOUR, 19));
+            o.put("reminder_min", p.getInt(K_REMINDER_MIN, 0));
+            o.put("palette", p.getInt(K_LOOK_PALETTE, 0));
+            o.put("gender", p.getInt(K_LOOK_GENDER, 0));
+            o.put("outfit", p.getInt(K_LOOK_OUTFIT, 0));
+            o.put("accessory", p.getInt(K_LOOK_ACCESSORY, 0));
+            o.put("practice_mic_tap", p.getBoolean(K_PRACTICE_MIC_TAP, false));
+            o.put("models_migrated_v31", p.getBoolean(K_MODELS_MIGRATED, false));
+            o.put("skills_seeded", p.getBoolean(K_SKILLS_SEEDED, false));
+        } catch (Exception ignored) {
+            // org.json only throws for invalid values; these are all plain types
+        }
+        return o;
+    }
+
+    /**
+     * Applies settings from a backup. Only keys present in the JSON are
+     * touched. The API key is deliberately never read from a backup file -
+     * even if a (forged) backup contained one, it is ignored here.
+     */
+    public static void restoreSettings(Context c, JSONObject o) {
+        if (o == null) return;
+        SharedPreferences.Editor e = sp(c).edit();
+        if (o.has("models_saved")) e.putString(K_MODELS_SAVED, o.optString("models_saved", ""));
+        if (o.has("model_agent")) e.putString(K_MODEL_AGENT, o.optString("model_agent", "gemini-3.6-flash"));
+        if (o.has("model_asking")) e.putString(K_MODEL_ASKING, o.optString("model_asking", "gemini-3.6-flash"));
+        if (o.has("model_convo")) e.putString(K_MODEL_CONVO, o.optString("model_convo", "gemini-3.5-flash-lite"));
+        if (o.has("model_bg")) e.putString(K_MODEL_BG, o.optString("model_bg", "gemini-3.5-flash-lite"));
+        if (o.has("tts_lang")) e.putString(K_TTS_LANG, o.optString("tts_lang", "hi"));
+        if (o.has("stt_lang")) e.putString(K_STT_LANG, o.optString("stt_lang", "hi"));
+        if (o.has("quiz_time_sec")) e.putInt(K_QUIZ_TIME, o.optInt("quiz_time_sec", 30));
+        if (o.has("memory_enabled")) e.putBoolean(K_MEMORY_ON, o.optBoolean("memory_enabled", true));
+        if (o.has("conv_mic")) e.putBoolean(K_CONV_MIC, o.optBoolean("conv_mic", true));
+        if (o.has("conv_tts")) e.putBoolean(K_CONV_TTS, o.optBoolean("conv_tts", true));
+        if (o.has("conv_stt")) e.putBoolean(K_CONV_STT, o.optBoolean("conv_stt", true));
+        if (o.has("reminder_on")) e.putBoolean(K_REMINDER_ON, o.optBoolean("reminder_on", false));
+        if (o.has("reminder_hour")) e.putInt(K_REMINDER_HOUR, o.optInt("reminder_hour", 19));
+        if (o.has("reminder_min")) e.putInt(K_REMINDER_MIN, o.optInt("reminder_min", 0));
+        if (o.has("palette")) e.putInt(K_LOOK_PALETTE, o.optInt("palette", 0));
+        if (o.has("gender")) e.putInt(K_LOOK_GENDER, o.optInt("gender", 0));
+        if (o.has("outfit")) e.putInt(K_LOOK_OUTFIT, o.optInt("outfit", 0));
+        if (o.has("accessory")) e.putInt(K_LOOK_ACCESSORY, o.optInt("accessory", 0));
+        if (o.has("practice_mic_tap")) e.putBoolean(K_PRACTICE_MIC_TAP, o.optBoolean("practice_mic_tap", false));
+        if (o.has("models_migrated_v31")) e.putBoolean(K_MODELS_MIGRATED, o.optBoolean("models_migrated_v31", false));
+        if (o.has("skills_seeded")) e.putBoolean(K_SKILLS_SEEDED, o.optBoolean("skills_seeded", false));
+        // NOTE: "api_key" is never read here, on purpose.
+        e.apply();
     }
 
     private Prefs() {

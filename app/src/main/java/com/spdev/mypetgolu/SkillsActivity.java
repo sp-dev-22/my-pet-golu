@@ -3,7 +3,9 @@ package com.spdev.mypetgolu;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
@@ -18,13 +20,18 @@ import java.util.List;
 /**
  * Skills: the system prompts behind agent chats. Built-in skills can only
  * be viewed; custom skills can be created, edited and deleted.
+ * Export / Import (JSON, PDF, ZIP) lives in the button row below the bar.
  */
 public class SkillsActivity extends Activity {
+
+    private static final int REQ_EXPORT = 2001;
+    private static final int REQ_IMPORT = 2002;
 
     private AppDb db;
     private List<AppDb.Skill> skills;
     private ListView listView;
     private SkillAdapter adapter;
+    private int pendingExportFormat = DataPort.FORMAT_JSON;
     private boolean destroyed = false;
 
     @Override
@@ -68,6 +75,32 @@ public class SkillsActivity extends Activity {
         bar.addView(newBtn, Ui.wrapWrap());
         root.addView(bar, Ui.matchWrap());
 
+        // export / import row
+        LinearLayout portRow = new LinearLayout(this);
+        portRow.setOrientation(LinearLayout.HORIZONTAL);
+        portRow.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 10), Ui.dp(this, 4));
+        TextView exportBtn = Ui.button(this, "Export", Ui.BLUE);
+        exportBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                onExport();
+            }
+        });
+        LinearLayout.LayoutParams expLp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        expLp.rightMargin = Ui.dp(this, 6);
+        portRow.addView(exportBtn, expLp);
+        TextView importBtn = Ui.button(this, "Import", Ui.GREEN);
+        importBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                DataPort.launchOpen(SkillsActivity.this, REQ_IMPORT);
+            }
+        });
+        portRow.addView(importBtn, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(portRow, Ui.matchWrap());
+
         listView = new ListView(this);
         listView.setDivider(null);
         listView.setDividerHeight(0);
@@ -103,6 +136,47 @@ public class SkillsActivity extends Activity {
     protected void onDestroy() {
         destroyed = true;
         super.onDestroy();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        final Uri uri = data.getData();
+        if (requestCode == REQ_EXPORT) {
+            DataPort.runExport(this, DataPort.TYPE_SKILLS, "skill", "skills",
+                    pendingExportFormat, uri, null);
+        } else if (requestCode == REQ_IMPORT) {
+            DataPort.runImport(this, DataPort.TYPE_SKILLS, uri,
+                    new DataPort.ImportDone() {
+                        @Override
+                        public void onImported(DataPort.Result res) {
+                            if (res.ok) {
+                                Ui.showText(SkillsActivity.this, "Import finished", res.message);
+                                refresh();
+                            } else {
+                                Ui.showErrorDialog(SkillsActivity.this, "Import failed", res.error);
+                            }
+                        }
+                    });
+        }
+    }
+
+    private void onExport() {
+        if (skills == null || skills.isEmpty()) {
+            Ui.toast(this, "No skills to export yet");
+            return;
+        }
+        Ui.singleChoice(this, "Export skills as", new String[]{"JSON", "PDF", "ZIP"}, 0,
+                new Ui.ChoiceCallback() {
+                    @Override
+                    public void onChoice(int index) {
+                        pendingExportFormat = index;
+                        DataPort.launchCreate(SkillsActivity.this, REQ_EXPORT,
+                                DataPort.exportFileName("skills", DataPort.formatExt(index)),
+                                DataPort.formatMime(index));
+                    }
+                });
     }
 
     private void refresh() {

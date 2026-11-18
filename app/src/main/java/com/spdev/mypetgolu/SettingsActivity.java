@@ -1,8 +1,12 @@
 package com.spdev.mypetgolu;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.TimePickerDialog;
+import android.content.DialogInterface;
+import android.content.Intent;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
@@ -13,16 +17,24 @@ import android.widget.TextView;
 import android.widget.TimePicker;
 
 import java.io.File;
+import java.io.OutputStream;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
 /**
  * Settings: API key, models, voice languages, quiz timer, Talk
- * toggles, study reminder and data wipe. All rows rebuild on resume.
+ * toggles, study reminder, backup & restore and data wipe.
+ * All rows rebuild on resume.
  */
 public class SettingsActivity extends Activity {
 
+    private static final int REQ_BACKUP = 3001;
+    private static final int REQ_RESTORE = 3002;
+
     private LinearLayout body;
+    private boolean destroyed = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,6 +59,126 @@ public class SettingsActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refresh();
+    }
+
+    @Override
+    protected void onDestroy() {
+        destroyed = true;
+        super.onDestroy();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        final Uri uri = data.getData();
+        if (requestCode == REQ_BACKUP) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    String msg;
+                    OutputStream out = null;
+                    try {
+                        out = getContentResolver().openOutputStream(uri);
+                        if (out == null) {
+                            throw new Exception("Could not write to the selected location.");
+                        }
+                        Backup.Summary s = Backup.writeBackup(SettingsActivity.this, out);
+                        msg = "Backup saved: " + s.message;
+                    } catch (Exception e) {
+                        String m = e.getMessage();
+                        msg = "Backup failed: " + (m == null || m.isEmpty() ? "unknown error" : m);
+                    } finally {
+                        if (out != null) {
+                            try {
+                                out.close();
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    }
+                    final String toast = msg;
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!destroyed) Ui.toast(SettingsActivity.this, toast);
+                        }
+                    });
+                }
+            }).start();
+        } else if (requestCode == REQ_RESTORE) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    final Backup.Summary v =
+                            Backup.validateBackup(SettingsActivity.this, uri);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (destroyed) return;
+                            if (!v.ok) {
+                                Ui.showErrorDialog(SettingsActivity.this,
+                                        "Cannot restore", v.error);
+                                return;
+                            }
+                            onRestoreConfirmed(uri, v);
+                        }
+                    });
+                }
+            }).start();
+        }
+    }
+
+    /** Shows what the backup holds and asks before replacing all data. */
+    private void onRestoreConfirmed(final Uri uri, final Backup.Summary v) {
+        String when = v.exportedAt > 0
+                ? new SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.US)
+                        .format(new Date(v.exportedAt))
+                : "unknown date";
+        Ui.confirm(this, "Replace all data with this backup?",
+                "Backup from " + when + " (" + v.message + ").\n\n"
+                        + "Your current chats, library, files, skills, memory "
+                        + "and settings will be REPLACED. This cannot be undone.",
+                new Ui.ConfirmCallback() {
+                    @Override
+                    public void onYes() {
+                        doRestore(uri);
+                    }
+                });
+    }
+
+    private void doRestore(final Uri uri) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final Backup.Summary s = Backup.restoreBackup(SettingsActivity.this, uri);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (destroyed) return;
+                        if (!s.ok) {
+                            Ui.showErrorDialog(SettingsActivity.this,
+                                    "Restore failed", s.error);
+                            return;
+                        }
+                        String msg = "Restore complete: " + s.message + ".\n\n"
+                                + "The app will now restart. After it restarts, "
+                                + "enter your Gemini API key in Settings.";
+                        new AlertDialog.Builder(SettingsActivity.this)
+                                .setTitle("Restore complete")
+                                .setMessage(msg)
+                                .setCancelable(false)
+                                .setPositiveButton("Restart now",
+                                        new DialogInterface.OnClickListener() {
+                                            @Override
+                                            public void onClick(DialogInterface d, int w) {
+                                                Backup.restartApp(SettingsActivity.this);
+                                            }
+                                        })
+                                .show();
+                    }
+                });
+            }
+        }).start();
     }
 
     // ------------------------------------------------------------------ build
@@ -224,6 +356,29 @@ public class SettingsActivity extends Activity {
             }
         }));
 
+        // -------------------------------------------------------- backup & restore
+        body.addView(Ui.section(this, "Backup & Restore"));
+        TextView backupBtn = Ui.button(this, "Backup", Ui.BLUE);
+        backupBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                DataPort.launchCreate(SettingsActivity.this, REQ_BACKUP,
+                        Backup.backupFileName(), "application/zip");
+            }
+        });
+        body.addView(withBottomMargin(backupBtn));
+        TextView restoreBtn = Ui.button(this, "Restore", Ui.ACCENT);
+        restoreBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                DataPort.launchOpen(SettingsActivity.this, REQ_RESTORE);
+            }
+        });
+        body.addView(withBottomMargin(restoreBtn));
+        body.addView(note("Backup saves everything - chats, library, files, skills, "
+                + "memory and settings - into one ZIP file. Your Gemini API key is "
+                + "never included; after a restore, enter it again in Settings."));
+
         // ------------------------------------------------------------------ data
         body.addView(Ui.section(this, "Data"));
         TextView clearBtn = Ui.button(this, "Clear all data", Ui.RED);
@@ -251,7 +406,7 @@ public class SettingsActivity extends Activity {
 
         // ----------------------------------------------------------------- about
         body.addView(Ui.section(this, "About"));
-        body.addView(note("Golu Study Buddy 0.4.0 - your study buddy. Chats, library, files and memory "
+        body.addView(note("Golu Study Buddy 0.5.0 - your study buddy. Chats, library, files and memory "
                 + "stay on your device; only your messages and attached files go to Gemini."));
     }
 

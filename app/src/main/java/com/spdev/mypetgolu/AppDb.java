@@ -87,6 +87,11 @@ public class AppDb extends SQLiteOpenHelper {
         public long updated;
     }
 
+    public static class Setting {
+        public String key;
+        public String value;
+    }
+
     public AppDb(Context c) {
         super(c, DB, null, VERSION);
     }
@@ -501,6 +506,79 @@ public class AppDb extends SQLiteOpenHelper {
         SQLiteDatabase db = getWritableDatabase();
         int n = db.update("settings", v, "key=?", new String[]{key});
         if (n == 0) db.insert("settings", null, v);
+    }
+
+    /** All key/value rows of the settings table, for backup. */
+    public List<Setting> listSettings() {
+        List<Setting> out = new ArrayList<>();
+        Cursor c = getReadableDatabase().query("settings", null, null, null, null, null, "key ASC");
+        try {
+            while (c.moveToNext()) {
+                Setting s = new Setting();
+                s.key = c.getString(c.getColumnIndexOrThrow("key"));
+                s.value = c.getString(c.getColumnIndexOrThrow("value"));
+                out.add(s);
+            }
+        } finally {
+            c.close();
+        }
+        return out;
+    }
+
+    // ------------------------------------------------------- restore helpers
+    // (used by Backup only: re-insert rows with their original timestamps)
+
+    /** Re-inserts a chat with its original timestamps (backup restore). */
+    public long restoreChat(String title, String kind, String model, String skillIds,
+                            long created, long updated) {
+        ContentValues v = new ContentValues();
+        v.put("title", title);
+        v.put("kind", kind);
+        v.put("model", model);
+        long first = 0;
+        if (skillIds != null && !skillIds.trim().isEmpty()) {
+            try {
+                first = Long.parseLong(skillIds.split(",")[0].trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        v.put("skill_id", first);
+        v.put("skill_ids", skillIds == null ? "" : skillIds);
+        v.put("created", created);
+        v.put("updated", updated);
+        return getWritableDatabase().insert("chats", null, v);
+    }
+
+    /** Re-inserts a message with its original timestamp (backup restore). */
+    public long restoreMessage(long chatId, String role, String text, String kind, long created) {
+        ContentValues v = new ContentValues();
+        v.put("chat_id", chatId);
+        v.put("role", role);
+        v.put("text", text);
+        v.put("kind", kind == null ? "text" : kind);
+        v.put("created", created);
+        return getWritableDatabase().insert("messages", null, v);
+    }
+
+    /** Re-inserts a memory fact with its original timestamp (backup restore). */
+    public long restoreMemory(String fact, long created) {
+        ContentValues v = new ContentValues();
+        v.put("fact", fact);
+        v.put("created", created);
+        return getWritableDatabase().insert("memory", null, v);
+    }
+
+    /** Re-inserts a practice session with its original timestamps (backup restore). */
+    public long restoreSession(String quizTitle, String quizJson, int current, int score,
+                               long created, long updated) {
+        ContentValues v = new ContentValues();
+        v.put("quiz_title", quizTitle);
+        v.put("quiz_json", quizJson);
+        v.put("current", current);
+        v.put("score", score);
+        v.put("created", created);
+        v.put("updated", updated);
+        return getWritableDatabase().insert("asking_sessions", null, v);
     }
 
     // ------------------------------------------------------- asking sessions

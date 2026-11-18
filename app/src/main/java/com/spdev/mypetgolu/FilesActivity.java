@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -32,6 +33,8 @@ import java.util.Locale;
 public class FilesActivity extends Activity {
 
     private static final int REQ_PICK_FILE = 1001;
+    private static final int REQ_EXPORT = 1002;
+    private static final int REQ_IMPORT = 1003;
 
     private UserDb db;
     private List<UserDb.Folder> folders = new ArrayList<>();
@@ -41,6 +44,7 @@ public class FilesActivity extends Activity {
     /** 0 = top level (all folders), else the open folder */
     private long currentFolderId = 0;
     private long pendingUploadFolderId = -1;
+    private int pendingExportFormat = DataPort.FORMAT_JSON;
     private LinearLayout folderRow;
     private TextView breadcrumb;
     private TextView upButton;
@@ -151,6 +155,32 @@ public class FilesActivity extends Activity {
             }
         });
         root.addView(uploadBtn);
+
+        // export / import row (exports ALL folders and files, not just this folder)
+        LinearLayout portRow = new LinearLayout(this);
+        portRow.setOrientation(LinearLayout.HORIZONTAL);
+        portRow.setPadding(Ui.dp(this, 10), Ui.dp(this, 2), Ui.dp(this, 10), Ui.dp(this, 4));
+        TextView exportBtn = Ui.button(this, "Export", Ui.BLUE);
+        exportBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                onExport();
+            }
+        });
+        LinearLayout.LayoutParams expLp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        expLp.rightMargin = Ui.dp(this, 6);
+        portRow.addView(exportBtn, expLp);
+        TextView importBtn = Ui.button(this, "Import", Ui.GREEN);
+        importBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                DataPort.launchOpen(FilesActivity.this, REQ_IMPORT);
+            }
+        });
+        portRow.addView(importBtn, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(portRow, Ui.matchWrap());
 
         listView = new ListView(this);
         listView.setDivider(null);
@@ -389,8 +419,31 @@ public class FilesActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQ_PICK_FILE || resultCode != RESULT_OK || data == null) return;
-        if (data.getData() == null) return;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        final Uri uri = data.getData();
+        if (requestCode == REQ_EXPORT) {
+            String note = pendingExportFormat == DataPort.FORMAT_JSON
+                    ? " (list only - use ZIP to include the files themselves)" : null;
+            DataPort.runExport(this, DataPort.TYPE_FILES, "file", "files",
+                    pendingExportFormat, uri, note);
+            return;
+        }
+        if (requestCode == REQ_IMPORT) {
+            DataPort.runImport(this, DataPort.TYPE_FILES, uri,
+                    new DataPort.ImportDone() {
+                        @Override
+                        public void onImported(DataPort.Result res) {
+                            if (res.ok) {
+                                Ui.showText(FilesActivity.this, "Import finished", res.message);
+                                refresh();
+                            } else {
+                                Ui.showErrorDialog(FilesActivity.this, "Import failed", res.error);
+                            }
+                        }
+                    });
+            return;
+        }
+        if (requestCode != REQ_PICK_FILE) return;
         if (pendingUploadFolderId < 0) pendingUploadFolderId = currentFolderId;
         try {
             FileStore.Stored stored = FileStore.copyFromUri(this, data.getData(),
@@ -403,6 +456,23 @@ public class FilesActivity extends Activity {
             String msg = e.getMessage() == null ? "Could not upload the file." : e.getMessage();
             Ui.toast(this, msg);
         }
+    }
+
+    private void onExport() {
+        if (db.countAllFiles() == 0 && db.listFolders().isEmpty()) {
+            Ui.toast(this, "No files or folders to export yet");
+            return;
+        }
+        Ui.singleChoice(this, "Export files as", new String[]{"JSON", "PDF", "ZIP"}, 0,
+                new Ui.ChoiceCallback() {
+                    @Override
+                    public void onChoice(int index) {
+                        pendingExportFormat = index;
+                        DataPort.launchCreate(FilesActivity.this, REQ_EXPORT,
+                                DataPort.exportFileName("files", DataPort.formatExt(index)),
+                                DataPort.formatMime(index));
+                    }
+                });
     }
 
     private static String fmt(long t) {

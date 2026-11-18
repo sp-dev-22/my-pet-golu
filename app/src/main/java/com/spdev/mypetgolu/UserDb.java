@@ -202,6 +202,41 @@ public class UserDb extends SQLiteOpenHelper {
         return getWritableDatabase().insert("files", null, v);
     }
 
+    /** Re-inserts a folder with its original timestamp (backup restore). */
+    public long restoreFolder(String name, long parentId, long created) {
+        ContentValues v = new ContentValues();
+        v.put("name", name);
+        v.put("parent_id", parentId);
+        v.put("created", created);
+        return getWritableDatabase().insert("folders", null, v);
+    }
+
+    /**
+     * Re-inserts a file row with its original timestamp (backup restore).
+     * The bytes must already be stored at {@code path}.
+     */
+    public long restoreFile(long folderId, String name, String mime, long size, String path,
+                            long created) {
+        ContentValues v = new ContentValues();
+        v.put("folder_id", folderId);
+        v.put("name", name);
+        v.put("mime", mime);
+        v.put("size", size);
+        v.put("path", path);
+        v.put("created", created);
+        return getWritableDatabase().insert("files", null, v);
+    }
+
+    /** Total number of files across all folders. */
+    public int countAllFiles() {
+        Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM files", null);
+        try {
+            return c.moveToFirst() ? c.getInt(0) : 0;
+        } finally {
+            c.close();
+        }
+    }
+
     public void deleteFile(long id) {
         getWritableDatabase().delete("files", "id=?", new String[]{String.valueOf(id)});
     }

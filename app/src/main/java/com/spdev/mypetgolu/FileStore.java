@@ -34,8 +34,28 @@ public final class FileStore {
     public static Stored copyFromUri(Context c, Uri uri, long folderId) throws Exception {
         String name = queryName(c, uri);
         if (name == null || name.isEmpty()) name = "file_" + System.currentTimeMillis();
-        name = sanitize(name);
         String mime = c.getContentResolver().getType(uri);
+        InputStream in = c.getContentResolver().openInputStream(uri);
+        if (in == null) throw new Exception("Could not open the selected file.");
+        try {
+            return copyFromStream(c, in, name, mime, folderId);
+        } finally {
+            try {
+                in.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /**
+     * Stores bytes from an open stream into the folder's internal directory.
+     * The stream is NOT closed here - the caller owns it (callers reading
+     * a ZIP entry must keep the stream open for the next entry).
+     */
+    public static Stored copyFromStream(Context c, InputStream in, String name, String mime,
+                                        long folderId) throws Exception {
+        if (name == null || name.isEmpty()) name = "file_" + System.currentTimeMillis();
+        name = sanitize(name);
         if (mime == null || mime.isEmpty()) mime = mimeFromName(name);
 
         File dir = dirFor(c, folderId);
@@ -43,8 +63,6 @@ public final class FileStore {
             throw new Exception("Could not create storage folder.");
         }
         File out = unique(dir, name);
-        InputStream in = c.getContentResolver().openInputStream(uri);
-        if (in == null) throw new Exception("Could not open the selected file.");
         FileOutputStream fos = null;
         long size = 0;
         try {
@@ -57,10 +75,6 @@ public final class FileStore {
             }
             fos.flush();
         } finally {
-            try {
-                in.close();
-            } catch (Exception ignored) {
-            }
             if (fos != null) {
                 try {
                     fos.close();

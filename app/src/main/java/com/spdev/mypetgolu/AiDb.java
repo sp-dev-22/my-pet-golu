@@ -76,6 +76,19 @@ public class AiDb extends SQLiteOpenHelper {
         getWritableDatabase().delete("library", "id=?", new String[]{String.valueOf(id)});
     }
 
+    /** Re-inserts a library item with its original folder and timestamp (backup restore). */
+    public long restoreItem(String title, String kind, String content, String source,
+                            String folder, long created) {
+        ContentValues v = new ContentValues();
+        v.put("title", title == null || title.isEmpty() ? "Untitled" : title);
+        v.put("kind", kind == null ? KIND_OTHER : kind);
+        v.put("content", content == null ? "" : content);
+        v.put("source", source == null ? "" : source);
+        v.put("folder", folder == null ? "" : folder);
+        v.put("created", created);
+        return getWritableDatabase().insert("library", null, v);
+    }
+
     public Item getItem(long id) {
         Cursor c = getReadableDatabase().query("library", null, "id=?",
                 new String[]{String.valueOf(id)}, null, null, null);

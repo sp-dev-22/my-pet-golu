@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
@@ -41,6 +42,9 @@ import java.util.TreeMap;
  */
 public class LibraryActivity extends Activity {
 
+    private static final int REQ_EXPORT = 2201;
+    private static final int REQ_IMPORT = 2202;
+
     private static final String[] FILTER_LABELS = {
             "All", "Quiz", "Notes", "Flashcards", "One-liners", "Questions"
     };
@@ -61,6 +65,7 @@ public class LibraryActivity extends Activity {
     /** null = all folders, "" = unfiled only, else a folder name */
     private String selectedFolder;
     private boolean managing = false;
+    private int pendingExportFormat = DataPort.FORMAT_JSON;
     private boolean destroyed = false;
 
     @Override
@@ -104,6 +109,32 @@ public class LibraryActivity extends Activity {
                 refresh();
             }
         });
+
+        // export / import row (exports the whole Library, not the filtered view)
+        LinearLayout portRow = new LinearLayout(this);
+        portRow.setOrientation(LinearLayout.HORIZONTAL);
+        portRow.setPadding(Ui.dp(this, 10), Ui.dp(this, 4), Ui.dp(this, 10), Ui.dp(this, 2));
+        TextView exportBtn = Ui.button(this, "Export", Ui.BLUE);
+        exportBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                onExport();
+            }
+        });
+        LinearLayout.LayoutParams expLp = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        expLp.rightMargin = Ui.dp(this, 6);
+        portRow.addView(exportBtn, expLp);
+        TextView importBtn = Ui.button(this, "Import", Ui.GREEN);
+        importBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                DataPort.launchOpen(LibraryActivity.this, REQ_IMPORT);
+            }
+        });
+        portRow.addView(importBtn, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(portRow, Ui.matchWrap());
 
         // kind filter chips
         HorizontalScrollView hsv = new HorizontalScrollView(this);
@@ -167,6 +198,47 @@ public class LibraryActivity extends Activity {
     protected void onDestroy() {
         destroyed = true;
         super.onDestroy();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        final Uri uri = data.getData();
+        if (requestCode == REQ_EXPORT) {
+            DataPort.runExport(this, DataPort.TYPE_LIBRARY, "item", "items",
+                    pendingExportFormat, uri, null);
+        } else if (requestCode == REQ_IMPORT) {
+            DataPort.runImport(this, DataPort.TYPE_LIBRARY, uri,
+                    new DataPort.ImportDone() {
+                        @Override
+                        public void onImported(DataPort.Result res) {
+                            if (res.ok) {
+                                Ui.showText(LibraryActivity.this, "Import finished", res.message);
+                                refresh();
+                            } else {
+                                Ui.showErrorDialog(LibraryActivity.this, "Import failed", res.error);
+                            }
+                        }
+                    });
+        }
+    }
+
+    private void onExport() {
+        if (db.countItems() == 0) {
+            Ui.toast(this, "Library is empty - nothing to export yet");
+            return;
+        }
+        Ui.singleChoice(this, "Export library as", new String[]{"JSON", "PDF", "ZIP"}, 0,
+                new Ui.ChoiceCallback() {
+                    @Override
+                    public void onChoice(int index) {
+                        pendingExportFormat = index;
+                        DataPort.launchCreate(LibraryActivity.this, REQ_EXPORT,
+                                DataPort.exportFileName("library", DataPort.formatExt(index)),
+                                DataPort.formatMime(index));
+                    }
+                });
     }
 
     private void buildChips() {
