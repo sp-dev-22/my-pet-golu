@@ -1,4 +1,4 @@
-name: Build Golu APK
+name: Build Golu Study Buddy APK
 
 on:
   push:
@@ -41,7 +41,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Golu-apk
+          name: GoluStudyBuddy-apk
           path: dist/Golu.apk
           if-no-files-found: error
 
@@ -50,7 +50,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release view golu-latest >/dev/null 2>&1 \
-            || gh release create golu-latest --title "Golu - latest APK" \
+            || gh release create golu-latest --title "Golu Study Buddy - latest APK" \
                  --notes "Auto-built from the latest main branch. Download Golu.apk and install it on your Android phone." \
                  --latest
           gh release upload golu-latest dist/Golu.apk --clobber
