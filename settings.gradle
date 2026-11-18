@@ -1,0 +1,18 @@
+pluginManagement {
+    repositories {
+        // direct Google Maven mirror (works behind proxies that block the redirect)
+        maven { url = 'https://dl.google.com/dl/android/maven2' }
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositories {
+        maven { url = 'https://dl.google.com/dl/android/maven2' }
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "MyPetGolu"
+include ':app'
