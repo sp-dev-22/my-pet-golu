@@ -63,12 +63,11 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
-            android:name=".AskingActivity"
+            android:name=".ReaderActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode"
             android:exported="false"
-            android:label="Asking"
-            android:screenOrientation="portrait"
-            android:windowSoftInputMode="adjustResize" />
+            android:label="Reader"
+            android:screenOrientation="portrait" />
 
         <activity
             android:name=".LibraryActivity"
