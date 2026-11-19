@@ -105,6 +105,13 @@
             android:label="Settings"
             android:screenOrientation="portrait" />
 
+        <activity
+            android:name=".WebAppActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode"
+            android:exported="false"
+            android:label="Web App"
+            android:screenOrientation="portrait" />
+
         <receiver
             android:name=".ReminderReceiver"
             android:exported="false" />
