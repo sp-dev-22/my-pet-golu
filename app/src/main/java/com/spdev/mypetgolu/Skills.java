@@ -4,7 +4,7 @@ import android.content.Context;
 
 /**
  * Built-in skills (system prompts). Skills are stored in AppDb so the user
- * can also create their own; these five are seeded on first run and are
+ * can also create their own; these six are seeded on first run and are
  * protected from deletion (and from editing - tapping one only shows it).
  * The creator skills each carry a short demo JSON in the exact shape the
  * app parses, so Gemini always returns a format Practice mode can play.
@@ -16,6 +16,7 @@ public final class Skills {
     public static final String NAME_ONELINER = "One Liner Maker";
     public static final String NAME_FLASHCARD = "Flashcard Maker";
     public static final String NAME_ASKER = "Questions Asker";
+    public static final String NAME_WEBAPP = "Web App Maker";
 
     public static String defaultPrompt() {
         return "You are Golu, a friendly study buddy for a student. "
@@ -111,6 +112,45 @@ public final class Skills {
     }
 
     /**
+     * Web App Maker: the model must return ONE complete, self-contained HTML
+     * file - a playable learning game or app - and call
+     * window.Golu.sendResult(jsonString) exactly once when the user reaches
+     * the activity's end trigger, so the result flows back to Golu. There is
+     * no fixed result schema: the model chooses the fields.
+     */
+    public static String webAppMakerPrompt() {
+        return "You are Golu's Web App Maker. Build small, fun, fully playable "
+                + "learning web apps and games for a student - for example a "
+                + "10-question quiz app, a Duolingo-style English word game, a "
+                + "flashcard revision app, or a Read-Along-style reading app.\n"
+                + "Rules:\n"
+                + "1. Reply with ONLY one complete HTML file - no markdown, no code "
+                + "fences, no extra text, no explanation.\n"
+                + "2. The HTML must be fully self-contained: ALL CSS and JavaScript "
+                + "inline inside the one file. Do NOT use any external URL - no CDN "
+                + "links, no web fonts, no online images, no fetch() calls. The app "
+                + "runs offline in a WebView.\n"
+                + "3. Make the app fully playable and complete: a start screen, the "
+                + "activity itself (questions, rounds or levels), and a clear end "
+                + "screen (score screen, results page or completion message). Keep the "
+                + "design bright, simple and touch-friendly for a phone screen. Match "
+                + "the user's language (Hindi, English or Hinglish).\n"
+                + "4. If files are attached, base the app's content STRICTLY on them.\n"
+                + "5. THE RESULT TRIGGER - the most important rule. When the user "
+                + "reaches the end of the activity (for example the quiz score screen, "
+                + "the last level, or the lesson-complete screen), send the result back "
+                + "to Golu with exactly this JavaScript call, once only:\n"
+                + "window.Golu.sendResult(JSON.stringify({score: 8, total: 10, "
+                + "correct: 8, wrong: 2}));\n"
+                + "You choose the fields - send whatever best describes how the user "
+                + "did (score, total, correct/wrong counts, the answers they gave, "
+                + "time taken, level reached, words learned - any JSON object). Call "
+                + "it exactly ONCE, only when the activity is finished, never before.\n"
+                + "6. Put a short <title> in the HTML (the name of the app).\n"
+                + "Now build the web app the user asked for.";
+    }
+
+    /**
      * Inserts the built-ins if they are not already in the DB, and refreshes
      * the stored prompt of any built-in whose prompt differs from the
      * current default (built-ins cannot be edited by the user, so a stored
@@ -124,6 +164,7 @@ public final class Skills {
         seedOne(db, NAME_ONELINER, oneLinerPrompt());
         seedOne(db, NAME_FLASHCARD, flashcardMakerPrompt());
         seedOne(db, NAME_ASKER, askerPrompt());
+        seedOne(db, NAME_WEBAPP, webAppMakerPrompt());
     }
 
     private static void seedOne(AppDb db, String name, String prompt) {
@@ -141,6 +182,7 @@ public final class Skills {
         if (NAME_ONELINER.equals(skillName)) return AiDb.KIND_ONELINER;
         if (NAME_FLASHCARD.equals(skillName)) return AiDb.KIND_FLASHCARDS;
         if (NAME_ASKER.equals(skillName)) return AiDb.KIND_QUESTIONS;
+        if (NAME_WEBAPP.equals(skillName)) return AiDb.KIND_WEBAPP;
         return null; // not a creator skill: no auto-save
     }
 

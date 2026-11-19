@@ -46,11 +46,11 @@ public class LibraryActivity extends Activity {
     private static final int REQ_IMPORT = 2202;
 
     private static final String[] FILTER_LABELS = {
-            "All", "Quiz", "Notes", "Flashcards", "One-liners", "Questions"
+            "All", "Quiz", "Notes", "Flashcards", "One-liners", "Questions", "Web Apps"
     };
     private static final String[] FILTER_KINDS = {
             null, AiDb.KIND_QUIZ, AiDb.KIND_NOTES, AiDb.KIND_FLASHCARDS,
-            AiDb.KIND_ONELINER, AiDb.KIND_QUESTIONS
+            AiDb.KIND_ONELINER, AiDb.KIND_QUESTIONS, AiDb.KIND_WEBAPP
     };
 
     private AiDb db;
@@ -162,7 +162,7 @@ public class LibraryActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         TextView emptyView = Ui.empty(this,
-                "Library is empty.\nAsk Golu (Quiz Maker, One Liner Maker\nor Questions Asker) to create something!");
+                "Library is empty.\nAsk Golu (Quiz Maker, Flashcard Maker,\nOne Liner Maker, Questions Asker\nor Web App Maker) to create something!");
         root.addView(emptyView, Ui.matchWrap());
         listView.setEmptyView(emptyView);
 
@@ -338,6 +338,33 @@ public class LibraryActivity extends Activity {
     }
 
     private void showItem(final AiDb.Item item) {
+        if (AiDb.KIND_WEBAPP.equals(item.kind)) {
+            // never dump the raw HTML: a short card with an Open button
+            TextView tv = new TextView(this);
+            tv.setText("A web app made by Golu. Tap Open to play it - when you "
+                    + "finish, your result is sent back to Golu for feedback.");
+            tv.setTextSize(14f);
+            tv.setTextColor(Ui.INK);
+            tv.setPadding(Ui.dp(this, 16), Ui.dp(this, 12), Ui.dp(this, 16), Ui.dp(this, 12));
+            new AlertDialog.Builder(this)
+                    .setTitle(item.title)
+                    .setView(tv)
+                    .setPositiveButton("Open", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface d, int w) {
+                            openWebApp(item);
+                        }
+                    })
+                    .setNeutralButton("Delete", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface d, int w) {
+                            onItemDelete(item);
+                        }
+                    })
+                    .setNegativeButton("Close", null)
+                    .show();
+            return;
+        }
         if (PracticeUtil.isPracticableKind(item.kind)) {
             String text = item.content;
             if (AiDb.KIND_QUIZ.equals(item.kind)) {
@@ -375,14 +402,27 @@ public class LibraryActivity extends Activity {
         }
     }
 
+    /** Launches the WebView player for a web app item. */
+    private void openWebApp(AiDb.Item item) {
+        Intent i = new Intent(this, WebAppActivity.class);
+        i.putExtra("library_item_id", item.id);
+        startActivity(i);
+    }
+
     private void onItemLongPress(final AiDb.Item item) {
+        final boolean isWebApp = AiDb.KIND_WEBAPP.equals(item.kind);
+        String[] options = isWebApp
+                ? new String[]{"Open", "Move to folder", "Delete"}
+                : new String[]{"Move to folder", "Delete"};
         new AlertDialog.Builder(this)
                 .setTitle(item.title)
-                .setItems(new String[]{"Move to folder", "Delete"},
+                .setItems(options,
                         new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface d, int which) {
-                                if (which == 0) {
+                                if (isWebApp && which == 0) {
+                                    openWebApp(item);
+                                } else if (which == (isWebApp ? 1 : 0)) {
                                     onMoveToFolder(item);
                                 } else {
                                     onItemDelete(item);

@@ -12,7 +12,7 @@ import java.util.List;
 /**
  * The AI's own database (golu_ai.db): the Library.
  * Everything the AI creates (quizzes, notes, flashcards, one-liners,
- * questions) is saved here and SURVIVES chat deletion - deleting a chat
+ * questions, web apps) is saved here and SURVIVES chat deletion - deleting a chat
  * never touches this file.
  */
 public class AiDb extends SQLiteOpenHelper {
@@ -25,6 +25,7 @@ public class AiDb extends SQLiteOpenHelper {
     public static final String KIND_FLASHCARDS = "flashcards";
     public static final String KIND_ONELINER = "oneliner";
     public static final String KIND_QUESTIONS = "questions";
+    public static final String KIND_WEBAPP = "webapp";
     public static final String KIND_OTHER = "other";
 
     public static class Item {
@@ -226,6 +227,7 @@ public class AiDb extends SQLiteOpenHelper {
         if (KIND_FLASHCARDS.equals(kind)) return "Flashcards";
         if (KIND_ONELINER.equals(kind)) return "One-liners";
         if (KIND_QUESTIONS.equals(kind)) return "Questions";
+        if (KIND_WEBAPP.equals(kind)) return "Web app";
         return "Saved";
     }
 
@@ -236,6 +238,7 @@ public class AiDb extends SQLiteOpenHelper {
         if (KIND_FLASHCARDS.equals(kind)) return "F";
         if (KIND_ONELINER.equals(kind)) return "1";
         if (KIND_QUESTIONS.equals(kind)) return "?";
+        if (KIND_WEBAPP.equals(kind)) return "W";
         return "*";
     }
 

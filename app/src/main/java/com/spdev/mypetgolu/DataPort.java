@@ -353,8 +353,15 @@ public final class DataPort {
             for (AiDb.Item it : items) {
                 String head = "[" + AiDb.kindLabel(it.kind) + "] " + it.title;
                 if (it.folder != null && !it.folder.isEmpty()) head += "  •  " + it.folder;
-                String body = it.content == null || it.content.isEmpty()
-                        ? "(empty)" : it.content;
+                String body;
+                if (AiDb.KIND_WEBAPP.equals(it.kind)) {
+                    // a web app's HTML source is useless on paper
+                    body = "(Web app - open it in the Library to play it.)";
+                } else if (it.content == null || it.content.isEmpty()) {
+                    body = "(empty)";
+                } else {
+                    body = it.content;
+                }
                 sections.add(new String[]{head, body});
             }
         } else if (TYPE_FILES.equals(type)) {
@@ -766,7 +773,8 @@ public final class DataPort {
 
     private static boolean isBuiltinName(String name) {
         return Skills.NAME_DEFAULT.equals(name) || Skills.NAME_QUIZ_MAKER.equals(name)
-                || Skills.NAME_ONELINER.equals(name) || Skills.NAME_ASKER.equals(name);
+                || Skills.NAME_ONELINER.equals(name) || Skills.NAME_FLASHCARD.equals(name)
+                || Skills.NAME_ASKER.equals(name) || Skills.NAME_WEBAPP.equals(name);
     }
 
     private static Result importSkills(Context c, JSONObject root) {
@@ -894,7 +902,8 @@ public final class DataPort {
     private static boolean isKnownKind(String kind) {
         return AiDb.KIND_QUIZ.equals(kind) || AiDb.KIND_NOTES.equals(kind)
                 || AiDb.KIND_FLASHCARDS.equals(kind) || AiDb.KIND_ONELINER.equals(kind)
-                || AiDb.KIND_QUESTIONS.equals(kind) || AiDb.KIND_OTHER.equals(kind);
+                || AiDb.KIND_QUESTIONS.equals(kind) || AiDb.KIND_WEBAPP.equals(kind)
+                || AiDb.KIND_OTHER.equals(kind);
     }
 
     // ------------------------------------------------------------- files import

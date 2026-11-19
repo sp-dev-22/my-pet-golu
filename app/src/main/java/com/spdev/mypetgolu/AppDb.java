@@ -330,6 +330,13 @@ public class AppDb extends SQLiteOpenHelper {
         getWritableDatabase().delete("messages", "id=?", new String[]{String.valueOf(id)});
     }
 
+    /** Changes a message's kind (used to tag a reply as a saved web app). */
+    public void updateMessageKind(long id, String kind) {
+        ContentValues v = new ContentValues();
+        v.put("kind", kind == null ? "text" : kind);
+        getWritableDatabase().update("messages", v, "id=?", new String[]{String.valueOf(id)});
+    }
+
     /**
      * Deletes a user+AI message pair: the message plus its partner
      * (the AI reply after a user message, or the user message before

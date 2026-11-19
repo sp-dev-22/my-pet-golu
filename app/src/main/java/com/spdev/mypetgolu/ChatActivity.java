@@ -29,8 +29,9 @@ import java.util.List;
 /**
  * One AI-agent chat. Text + file attachments go to Gemini; replies from
  * creator skills (Quiz Maker, Flashcard Maker, One Liner Maker, Questions
- * Asker) are auto-saved to the Library. No voice here - AI voice is always
- * OFF in agent chats.
+ * Asker, Web App Maker) are auto-saved to the Library. Web App Maker
+ * replies are saved as web apps and shown as a compact card - tap it to
+ * play the app. No voice here - AI voice is always OFF in agent chats.
  */
 public class ChatActivity extends Activity {
 
@@ -236,8 +237,11 @@ public class ChatActivity extends Activity {
         listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                if (selectionMode && msgs != null && position >= 0 && position < msgs.size()) {
+                if (msgs == null || position < 0 || position >= msgs.size()) return;
+                if (selectionMode) {
                     togglePair(AppDb.pairKey(msgs, position));
+                } else if (isWebAppMessage(msgs.get(position))) {
+                    openWebAppMessage(msgs.get(position));
                 }
             }
         });
@@ -375,10 +379,7 @@ public class ChatActivity extends Activity {
                                             "Golu message", msg.text));
                                     Ui.toast(ChatActivity.this, "Copied");
                                 } else if (which == 1) {
-                                    String kind = Skills.libraryKindForSkills(currentSkills());
-                                    if (kind == null) kind = AiDb.KIND_OTHER;
-                                    aiDb.addItem(firstLine60(msg.text), kind, msg.text, chat.title);
-                                    Ui.toast(ChatActivity.this, "Saved to Library");
+                                    saveMessageToLibrary(msg);
                                 } else if (which == 2) {
                                     Ui.confirm(ChatActivity.this, "Delete pair?",
                                             "This deletes this message and its reply.",
@@ -397,6 +398,31 @@ public class ChatActivity extends Activity {
                             }
                         })
                 .show();
+    }
+
+    /** Long-press "Save to Library": web app replies save as clean HTML. */
+    private void saveMessageToLibrary(final AppDb.Msg msg) {
+        if (isWebAppMessage(msg)) {
+            Ui.toast(this, "Already in the Library - tap the message to open it");
+            return;
+        }
+        String kind = Skills.libraryKindForSkills(currentSkills());
+        if (AiDb.KIND_WEBAPP.equals(kind)) {
+            String html = WebAppUtil.extractHtml(msg.text);
+            if (html == null) {
+                Ui.toast(this, "No web app in this message");
+                return;
+            }
+            long itemId = aiDb.addItem(WebAppUtil.extractTitle(html, "Web app"),
+                    AiDb.KIND_WEBAPP, html, chat.title);
+            db.updateMessageKind(msg.id, WebAppUtil.MSG_KIND_PREFIX + itemId);
+            refreshMessages();
+            Ui.toast(this, "Saved to Library");
+            return;
+        }
+        if (kind == null) kind = AiDb.KIND_OTHER;
+        aiDb.addItem(firstLine60(msg.text), kind, msg.text, chat.title);
+        Ui.toast(this, "Saved to Library");
     }
 
     // ------------------------------------------------- message selection
@@ -578,8 +604,8 @@ public class ChatActivity extends Activity {
                                 new GeminiClient.Callback() {
                                     @Override
                                     public void onOk(String reply) {
-                                        db.addMessage(chatId, AppDb.ROLE_AI, reply, "text");
-                                        boolean saved = autoSave(reply, skills);
+                                        long msgId = db.addMessage(chatId, AppDb.ROLE_AI, reply, "text");
+                                        boolean saved = autoSave(reply, skills, msgId, sendText);
                                         clearAttachments();
                                         refreshMessages();
                                         scrollToBottom();
@@ -599,10 +625,31 @@ public class ChatActivity extends Activity {
         }).start();
     }
 
-    /** Auto-saves creator-skill replies to the Library. Returns true if saved. */
-    private boolean autoSave(String reply, List<AppDb.Skill> skills) {
+    /**
+     * Auto-saves creator-skill replies to the Library. Returns true if saved
+     * (the caller then toasts "Saved to Library"). Web App Maker replies are
+     * saved as web apps (clean HTML only) and the message is tagged so the
+     * chat shows a compact card instead of the raw HTML; when the reply holds
+     * no HTML it is saved as notes instead, with its own toast.
+     */
+    private boolean autoSave(String reply, List<AppDb.Skill> skills, long msgId, String userText) {
         String kind = Skills.libraryKindForSkills(skills);
         if (kind == null) return false;
+        if (AiDb.KIND_WEBAPP.equals(kind)) {
+            String html = WebAppUtil.extractHtml(reply);
+            if (html == null) {
+                aiDb.addItem(firstLine60(reply), AiDb.KIND_NOTES, reply, chat.title);
+                Ui.toast(this, "Golu didn't return a web app this time - saved as notes. "
+                        + "Ask again for a web app.");
+                return false;
+            }
+            String fallback = userText == null || userText.trim().isEmpty()
+                    ? "Web app" : firstLine60(userText);
+            long itemId = aiDb.addItem(WebAppUtil.extractTitle(html, fallback),
+                    AiDb.KIND_WEBAPP, html, chat.title);
+            db.updateMessageKind(msgId, WebAppUtil.MSG_KIND_PREFIX + itemId);
+            return true;
+        }
         if (AiDb.KIND_QUIZ.equals(kind)) {
             List<QuizUtil.Question> qs = QuizUtil.parseQuiz(reply);
             if (!qs.isEmpty()) {
@@ -625,6 +672,54 @@ public class ChatActivity extends Activity {
         if (line.isEmpty()) line = "Untitled";
         if (line.length() > 60) line = line.substring(0, 57) + "...";
         return line;
+    }
+
+    /** True when a message is a reply that was saved as a web app. */
+    private static boolean isWebAppMessage(AppDb.Msg msg) {
+        return msg != null && WebAppUtil.isWebAppMessageKind(msg.kind);
+    }
+
+    /** Opens the web app behind a chat message (tap on its card). */
+    private void openWebAppMessage(final AppDb.Msg msg) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                AiDb.Item found = null;
+                long itemId = WebAppUtil.webAppItemId(msg.kind);
+                if (itemId > 0) {
+                    AiDb.Item it = aiDb.getItem(itemId);
+                    if (it != null && AiDb.KIND_WEBAPP.equals(it.kind)) found = it;
+                }
+                if (found == null) {
+                    // id is stale (e.g. after a backup restore): match by content
+                    String html = WebAppUtil.extractHtml(msg.text);
+                    if (html != null) {
+                        for (AiDb.Item it : aiDb.listItems()) {
+                            if (AiDb.KIND_WEBAPP.equals(it.kind) && html.equals(it.content)) {
+                                found = it;
+                                break;
+                            }
+                        }
+                    }
+                }
+                final AiDb.Item target = found;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (target != null) {
+                            Intent i = new Intent(ChatActivity.this, WebAppActivity.class);
+                            i.putExtra("library_item_id", target.id);
+                            i.putExtra("chat_id", chatId);
+                            startActivity(i);
+                        } else {
+                            Ui.toast(ChatActivity.this,
+                                    "That web app is no longer in the Library");
+                            startActivity(new Intent(ChatActivity.this, LibraryActivity.class));
+                        }
+                    }
+                });
+            }
+        }).start();
     }
 
     // ------------------------------------------------------------------ adapter
@@ -668,7 +763,13 @@ public class ChatActivity extends Activity {
             row.setPadding(0, Ui.dp(ChatActivity.this, 3), 0, Ui.dp(ChatActivity.this, 3));
 
             TextView bubble = new TextView(ChatActivity.this);
-            bubble.setText((selected ? "\u2611 " : selectionMode ? "\u2610 " : "") + msg.text);
+            String shown = msg.text;
+            if (isWebAppMessage(msg)) {
+                // never dump the raw HTML in the chat: a compact card instead
+                shown = "[Web app] " + WebAppUtil.extractTitle(msg.text, "Web app")
+                        + " - tap to open";
+            }
+            bubble.setText((selected ? "\u2611 " : selectionMode ? "\u2610 " : "") + shown);
             bubble.setTextSize(15f);
             bubble.setTextColor(Ui.INK);
             bubble.setPadding(Ui.dp(ChatActivity.this, 12), Ui.dp(ChatActivity.this, 9),

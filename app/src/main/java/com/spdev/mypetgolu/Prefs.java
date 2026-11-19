@@ -37,6 +37,7 @@ public final class Prefs {
     private static final String K_MODELS_MIGRATED = "models_migrated_v31";
     private static final String K_SKILLS_SEEDED = "skills_seeded";
     private static final String K_SKILLS_SEEDED_V60 = "skills_seeded_v60";
+    private static final String K_SKILLS_SEEDED_V70 = "skills_seeded_v70";
     private static final String K_PRACTICE_MIC_TAP = "practice_mic_tap";
 
     private static final String K_API_KEY = "api_key";
@@ -283,6 +284,20 @@ public final class Prefs {
     }
 
     /**
+     * v0.7.0 re-seed (adds the Web App Maker skill and refreshes the
+     * built-in prompts). Same pattern as the v0.6.0 flag: existing installs
+     * already have the older flags set, so this separate flag makes the
+     * one-time v0.7.0 seed run exactly once.
+     */
+    public static boolean isSkillsSeededV70(Context c) {
+        return sp(c).getBoolean(K_SKILLS_SEEDED_V70, false);
+    }
+
+    public static void setSkillsSeededV70(Context c) {
+        sp(c).edit().putBoolean(K_SKILLS_SEEDED_V70, true).apply();
+    }
+
+    /**
      * Practice mic mode: false = AUTO (listens on its own when a question is
      * asked), true = TAP (the user taps the mic button to speak the answer).
      */
@@ -418,6 +433,7 @@ public final class Prefs {
             o.put("models_migrated_v31", p.getBoolean(K_MODELS_MIGRATED, false));
             o.put("skills_seeded", p.getBoolean(K_SKILLS_SEEDED, false));
             o.put("skills_seeded_v60", p.getBoolean(K_SKILLS_SEEDED_V60, false));
+            o.put("skills_seeded_v70", p.getBoolean(K_SKILLS_SEEDED_V70, false));
         } catch (Exception ignored) {
             // org.json only throws for invalid values; these are all plain types
         }
@@ -456,6 +472,7 @@ public final class Prefs {
         if (o.has("models_migrated_v31")) e.putBoolean(K_MODELS_MIGRATED, o.optBoolean("models_migrated_v31", false));
         if (o.has("skills_seeded")) e.putBoolean(K_SKILLS_SEEDED, o.optBoolean("skills_seeded", false));
         if (o.has("skills_seeded_v60")) e.putBoolean(K_SKILLS_SEEDED_V60, o.optBoolean("skills_seeded_v60", false));
+        if (o.has("skills_seeded_v70")) e.putBoolean(K_SKILLS_SEEDED_V70, o.optBoolean("skills_seeded_v70", false));
         // NOTE: "api_key" is never read here, on purpose.
         e.apply();
     }

@@ -42,15 +42,17 @@ public class MainActivity extends Activity implements PetView.Listener {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
-        // seed the built-in skills once, off the UI thread (the v0.6.0 flag
-        // re-runs seeding once on existing installs for the new skill)
-        if (!Prefs.isSkillsSeeded(this) || !Prefs.isSkillsSeededV60(this)) {
+        // seed the built-in skills once, off the UI thread (the v0.6.0/v0.7.0
+        // flags re-run seeding once on existing installs for the new skills)
+        if (!Prefs.isSkillsSeeded(this) || !Prefs.isSkillsSeededV60(this)
+                || !Prefs.isSkillsSeededV70(this)) {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
                     Skills.seed(new AppDb(MainActivity.this));
                     Prefs.setSkillsSeeded(MainActivity.this);
                     Prefs.setSkillsSeededV60(MainActivity.this);
+                    Prefs.setSkillsSeededV70(MainActivity.this);
                 }
             }).start();
         }
