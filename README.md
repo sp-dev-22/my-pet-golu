@@ -1,6 +1,6 @@
 # Golu Study Buddy
 
-**Version 0.6.0** — your study buddy.
+**Version 0.7.0** — your study buddy.
 
 Golu is a study buddy, not just a pet. He lives on your home screen -
 drawn entirely with Canvas code, no image assets - and is powered by
@@ -47,13 +47,21 @@ and let him practise with you out loud.
   markdown artefacts (*, #, % and the like) are cleaned out of the spoken
   text so he sounds natural.
 - **Library (AI's own database)** - everything the AI creates (quizzes, notes,
-  flashcards, one-liners, questions) is auto-saved here and stays even if you
+  flashcards, one-liners, questions, web apps) is auto-saved here and stays even if you
   delete the chat it came from. Items live in folders: organise them by hand
   (long-press to move) or tap **Manage** and the helper model proposes folders
   for everything unfiled. Search by title, filter by kind and folder. Tap an
   item to view it; tap "Practice" on a quiz, flashcard set, one-liner set or
-  question set to start Practice mode with it. Export / Import the whole
-  Library as JSON, PDF or ZIP.
+  question set to start Practice mode with it; tap "Open" on a web app to play
+  it. Export / Import the whole Library as JSON, PDF or ZIP.
+- **Web apps** - ask Golu (Web App Maker skill) to build a small learning web
+  app or game: a 10-question quiz app, a Duolingo-style English game, a
+  Read-Along-style reader. The app is one self-contained HTML file, saved to
+  the Library; tap Open to play it. When you finish, the app sends its result
+  (score, answers, time - whatever the app tracks) back to Golu, who replies
+  with feedback in your chat. The web page runs locally with no navigation
+  and gets a single bridge call (`window.Golu.sendResult`), so it can never
+  reach your API key or app data.
 - **Files (your own database)** - folders and sub-folders for your PDFs.
   Upload with the file picker into the folder you are in (or pick a folder
   when uploading from the top level); files are copied into the app's private
@@ -64,7 +72,9 @@ and let him practise with you out loud.
   quiz the app can play), **Flashcard Maker** (returns a JSON set of
   front/back cards), **One Liner Maker** (returns a JSON list of crisp
   revision lines), **Questions Asker** (practice questions with answers and
-  explanations). Make your own skills too and pick several per chat.
+  explanations), **Web App Maker** (returns one self-contained HTML learning
+  game or app that reports its result back to Golu). Make your own skills too
+  and pick several per chat.
   Export / Import skills as JSON, PDF or ZIP.
 - **Memory** - facts Golu remembers about you, now one tap from Home. When
   enabled, they are added to every chat's system prompt. "Suggest from chats"
