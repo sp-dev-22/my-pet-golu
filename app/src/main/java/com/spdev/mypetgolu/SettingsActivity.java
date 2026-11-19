@@ -24,8 +24,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Settings: API key, models, voice languages, quiz timer, Talk
- * toggles, study reminder, backup & restore and data wipe.
+ * Settings: API key, models, voice languages, Talk toggles, web app
+ * result sharing, study reminder, backup & restore and data wipe.
  * All rows rebuild on resume.
  */
 public class SettingsActivity extends Activity {
@@ -213,22 +213,16 @@ public class SettingsActivity extends Activity {
                 pickModel(0);
             }
         }));
-        body.addView(row("Practice model", Prefs.getAskingModel(this), new View.OnClickListener() {
+        body.addView(row("Talk model", Prefs.getConversationModel(this), new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 pickModel(1);
             }
         }));
-        body.addView(row("Talk model", Prefs.getConversationModel(this), new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                pickModel(2);
-            }
-        }));
         body.addView(row("Helper model", Prefs.getBackgroundModel(this), new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                pickModel(3);
+                pickModel(2);
             }
         }));
 
@@ -269,33 +263,6 @@ public class SettingsActivity extends Activity {
             }
         }));
 
-        // -------------------------------------------------------------- practice
-        body.addView(Ui.section(this, "Practice"));
-        body.addView(row("Answer time", String.valueOf(Prefs.getQuizTimeSec(this)),
-                new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        Ui.input(SettingsActivity.this, "Answer time (seconds)",
-                                "5 - 300 seconds",
-                                String.valueOf(Prefs.getQuizTimeSec(SettingsActivity.this)),
-                                new Ui.InputCallback() {
-                                    @Override
-                                    public void onInput(String text) {
-                                        try {
-                                            int sec = Integer.parseInt(text.trim());
-                                            if (sec < 5) sec = 5;
-                                            if (sec > 300) sec = 300;
-                                            Prefs.setQuizTimeSec(SettingsActivity.this, sec);
-                                            refresh();
-                                        } catch (NumberFormatException e) {
-                                            Ui.toast(SettingsActivity.this,
-                                                    "Please enter a number");
-                                        }
-                                    }
-                                });
-                    }
-                }));
-
         // ------------------------------------------------------------------ talk
         body.addView(Ui.section(this, "Talk"));
         body.addView(row("Mic", onOff(Prefs.isConvMicOn(this)), new View.OnClickListener() {
@@ -319,6 +286,20 @@ public class SettingsActivity extends Activity {
                 refresh();
             }
         }));
+
+        // -------------------------------------------------------------- web apps
+        body.addView(Ui.section(this, "Web apps"));
+        body.addView(row("Share results with Golu", shareModeLabel(Prefs.getWebAppShareMode(this)),
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        pickShareMode();
+                    }
+                }));
+        body.addView(note("When you finish a web app or game, Golu can give you "
+                + "feedback on your result. \"Ask each time\" shows a choice after "
+                + "every result; \"Always share\" and \"Never share\" remember it. "
+                + "Your result is always saved to the Library either way."));
 
         // -------------------------------------------------------- study reminder
         body.addView(Ui.section(this, "Study reminder"));
@@ -406,7 +387,7 @@ public class SettingsActivity extends Activity {
 
         // ----------------------------------------------------------------- about
         body.addView(Ui.section(this, "About"));
-        body.addView(note("Golu Study Buddy 0.7.0 - your study buddy. Chats, library, files and memory "
+        body.addView(note("Golu Study Buddy 0.8.0 - your study buddy. Chats, library, files and memory "
                 + "stay on your device; only your messages and attached files go to Gemini."));
     }
 
@@ -425,14 +406,13 @@ public class SettingsActivity extends Activity {
                 });
     }
 
-    /** which: 0 agent, 1 asking, 2 conversation, 3 background */
+    /** which: 0 agent, 1 conversation, 2 background */
     private void pickModel(final int which) {
         final List<String> models = Prefs.getSavedModels(this);
         String[] items = models.toArray(new String[models.size()]);
         String current;
-        if (which == 1) current = Prefs.getAskingModel(this);
-        else if (which == 2) current = Prefs.getConversationModel(this);
-        else if (which == 3) current = Prefs.getBackgroundModel(this);
+        if (which == 1) current = Prefs.getConversationModel(this);
+        else if (which == 2) current = Prefs.getBackgroundModel(this);
         else current = Prefs.getAgentModel(this);
         int checked = models.indexOf(current);
         if (checked < 0) checked = 0;
@@ -440,13 +420,31 @@ public class SettingsActivity extends Activity {
             @Override
             public void onChoice(int index) {
                 String model = models.get(index);
-                if (which == 1) Prefs.setAskingModel(SettingsActivity.this, model);
-                else if (which == 2) Prefs.setConversationModel(SettingsActivity.this, model);
-                else if (which == 3) Prefs.setBackgroundModel(SettingsActivity.this, model);
+                if (which == 1) Prefs.setConversationModel(SettingsActivity.this, model);
+                else if (which == 2) Prefs.setBackgroundModel(SettingsActivity.this, model);
                 else Prefs.setAgentModel(SettingsActivity.this, model);
                 refresh();
             }
         });
+    }
+
+    /** Web app results: ask each time, always share, or never share. */
+    private void pickShareMode() {
+        Ui.singleChoice(this, "Share web app results with Golu",
+                new String[]{"Ask each time", "Always share", "Never share"},
+                Prefs.getWebAppShareMode(this), new Ui.ChoiceCallback() {
+                    @Override
+                    public void onChoice(int index) {
+                        Prefs.setWebAppShareMode(SettingsActivity.this, index);
+                        refresh();
+                    }
+                });
+    }
+
+    private static String shareModeLabel(int mode) {
+        if (mode == Prefs.SHARE_ALWAYS) return "Always share";
+        if (mode == Prefs.SHARE_NEVER) return "Never share";
+        return "Ask each time";
     }
 
     private void pickLanguage(final boolean tts) {

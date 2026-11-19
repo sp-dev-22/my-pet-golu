@@ -12,6 +12,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -32,9 +33,10 @@ import java.util.Locale;
  * all navigation is blocked, and the page gets exactly ONE bridge call:
  * window.Golu.sendResult(jsonString), fired once by the app when the user
  * reaches its end trigger. The result JSON has no fixed schema - the AI
- * chooses the fields. The result is shown to the user, saved to the
- * Library as notes, and sent to Gemini for feedback in the originating
- * chat (or a "Web App Results" chat when opened from the Library).
+ * chooses the fields. The result is shown to the user and saved to the
+ * Library as notes; whether it is ALSO sent to Gemini for feedback is
+ * the user's choice (ask each time, always share, never share - see
+ * Prefs.getWebAppShareMode; the default is to ask).
  *
  * SECURITY: the bridge exposes a single method and holds no Context, no
  * preferences and no API key - JavaScript in the page cannot reach
@@ -221,8 +223,10 @@ public class WebAppActivity extends Activity {
     /**
      * Handles a result from the web app. Runs on the UI thread (the bridge
      * posts here). Validates the JSON, saves a summary to the Library as
-     * notes, shows the user what was sent, and forwards it to Gemini for
-     * feedback - never crashing on bad input.
+     * notes, and then - depending on the user's share choice - either asks
+     * whether to send it to Golu, sends it, or keeps it local. Nothing is
+     * ever forwarded to Gemini without the user's say-so, and the flow
+     * never crashes on bad input.
      */
     private void onResultReceived(String json) {
         if (destroyed) return;
@@ -258,7 +262,98 @@ public class WebAppActivity extends Activity {
                 "Result from '" + item.title + "' (" + when + "):\n\n" + pretty,
                 "Web app");
 
-        // (b) which chat gets the feedback? the originating chat, else the
+        // (b) the user's share choice decides what happens next
+        int mode = Prefs.getWebAppShareMode(this);
+        if (mode == Prefs.SHARE_NEVER) {
+            showSavedLocally(pretty);
+        } else if (mode == Prefs.SHARE_ALWAYS) {
+            shareResult(json, pretty);
+        } else {
+            showShareChoice(json, pretty);
+        }
+    }
+
+    /** Asks the user whether to share this result with Golu (with a "remember" checkbox). */
+    private void showShareChoice(final String json, String pretty) {
+        LinearLayout view = new LinearLayout(this);
+        view.setOrientation(LinearLayout.VERTICAL);
+        view.setPadding(Ui.dp(this, 16), Ui.dp(this, 12), Ui.dp(this, 16), Ui.dp(this, 12));
+
+        TextView intro = new TextView(this);
+        intro.setText("You finished '" + item.title + "'. Share your result with Golu "
+                + "so it can give you feedback? Your result is already saved to the "
+                + "Library either way.");
+        intro.setTextSize(14f);
+        intro.setTextColor(Ui.INK);
+        view.addView(intro, Ui.matchWrap());
+
+        TextView result = new TextView(this);
+        result.setText(pretty);
+        result.setTextSize(13f);
+        result.setTextColor(Ui.MUTED);
+        result.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 10));
+        ScrollView sv = new ScrollView(this);
+        sv.addView(result, Ui.matchWrap());
+        LinearLayout.LayoutParams svLp = Ui.matchWrap();
+        svLp.height = Ui.dp(this, 160);
+        view.addView(sv, svLp);
+
+        final CheckBox remember = new CheckBox(this);
+        remember.setText("Remember my choice");
+        remember.setTextSize(14f);
+        remember.setTextColor(Ui.INK);
+        view.addView(remember, Ui.matchWrap());
+
+        new AlertDialog.Builder(this)
+                .setTitle("Share result with Golu?")
+                .setView(view)
+                .setPositiveButton("Share with Golu", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        if (remember.isChecked()) {
+                            Prefs.setWebAppShareMode(WebAppActivity.this, Prefs.SHARE_ALWAYS);
+                        }
+                        shareResult(json, WebAppUtil.prettyJson(json, 2000));
+                    }
+                })
+                .setNegativeButton("Don't share", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        if (remember.isChecked()) {
+                            Prefs.setWebAppShareMode(WebAppActivity.this, Prefs.SHARE_NEVER);
+                        }
+                        showSavedLocally(WebAppUtil.prettyJson(json, 2000));
+                    }
+                })
+                .setCancelable(false)
+                .show();
+    }
+
+    /** The result was kept on the device only - tell the user where it is. */
+    private void showSavedLocally(String pretty) {
+        TextView tv = new TextView(this);
+        tv.setText("Your result was saved to the Library as notes, and was NOT "
+                + "sent to Golu.\n\n" + pretty
+                + "\n\nYou can change this any time in Settings > Web apps.");
+        tv.setTextSize(14f);
+        tv.setTextColor(Ui.INK);
+        tv.setPadding(Ui.dp(this, 16), Ui.dp(this, 12), Ui.dp(this, 16), Ui.dp(this, 12));
+        ScrollView sv = new ScrollView(this);
+        sv.addView(tv);
+        new AlertDialog.Builder(this)
+                .setTitle("Result saved")
+                .setView(sv)
+                .setPositiveButton("OK", null)
+                .show();
+    }
+
+    /**
+     * Forwards the result to Gemini for feedback in the originating chat
+     * (or the shared "Web App Results" chat). Only called after the user
+     * chose to share - either just now, or by an earlier remembered choice.
+     */
+    private void shareResult(String json, String pretty) {
+        // which chat gets the feedback? the originating chat, else the
         // shared "Web App Results" agent chat
         AppDb.Chat target = null;
         if (chatId > 0) target = appDb.getChat(chatId);
@@ -291,7 +386,7 @@ public class WebAppActivity extends Activity {
             return;
         }
 
-        // (c) show the user what was sent, then forward it to Gemini
+        // show the user what was sent, then forward it to Gemini
         String sent = "Sent to Golu:\n\n" + pretty
                 + "\n\nGolu's feedback will appear in the chat '"
                 + targetChat.title + "'.";

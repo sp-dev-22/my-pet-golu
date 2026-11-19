@@ -84,8 +84,13 @@ public class ConversationActivity extends Activity {
                 Prefs.getConversationModel(this));
         setContentView(buildUi());
 
+        // v0.8.0: map a saved pre-v0.8.0 accessory into the new hat and
+        // glasses slots, before the look is read (MainActivity already
+        // does this, but Talk can also be reached first after a restore)
+        Prefs.migrateLookIfNeeded(this);
         pet.setLook(Prefs.getPalette(this), Prefs.getGender(this),
-                Prefs.getOutfit(this), Prefs.getAccessory(this), Prefs.getClothesColor(this));
+                Prefs.getOutfit(this), Prefs.getAccessory(this), Prefs.getClothesColor(this),
+                Prefs.getHat(this), Prefs.getGlasses(this));
 
         voice = new GoluVoice(this);
         voice.initTts(Prefs.getTtsLocale(this), null);

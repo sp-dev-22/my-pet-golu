@@ -29,9 +29,9 @@ import java.util.List;
 /**
  * One AI-agent chat. Text + file attachments go to Gemini; replies from
  * creator skills (Quiz Maker, Flashcard Maker, One Liner Maker, Questions
- * Asker, Web App Maker) are auto-saved to the Library. Web App Maker
- * replies are saved as web apps and shown as a compact card - tap it to
- * play the app. No voice here - AI voice is always OFF in agent chats.
+ * Asker, Web App Maker) are auto-saved to the Library and shown as
+ * compact cards - tap one to read it in the reader (or to play it, for
+ * web apps). No voice here - AI voice is always OFF in agent chats.
  */
 public class ChatActivity extends Activity {
 
@@ -242,6 +242,8 @@ public class ChatActivity extends Activity {
                     togglePair(AppDb.pairKey(msgs, position));
                 } else if (isWebAppMessage(msgs.get(position))) {
                     openWebAppMessage(msgs.get(position));
+                } else if (isReadMessage(msgs.get(position))) {
+                    openReadMessage(msgs.get(position));
                 }
             }
         });
@@ -400,10 +402,15 @@ public class ChatActivity extends Activity {
                 .show();
     }
 
-    /** Long-press "Save to Library": web app replies save as clean HTML. */
+    /** Long-press "Save to Library": web app replies save as clean HTML, and
+     *  any other reply is saved and tagged so the chat shows a read card. */
     private void saveMessageToLibrary(final AppDb.Msg msg) {
         if (isWebAppMessage(msg)) {
             Ui.toast(this, "Already in the Library - tap the message to open it");
+            return;
+        }
+        if (isReadMessage(msg)) {
+            Ui.toast(this, "Already in the Library - tap the message to read it");
             return;
         }
         String kind = Skills.libraryKindForSkills(currentSkills());
@@ -421,7 +428,10 @@ public class ChatActivity extends Activity {
             return;
         }
         if (kind == null) kind = AiDb.KIND_OTHER;
-        aiDb.addItem(firstLine60(msg.text), kind, msg.text, chat.title);
+        String title = firstLine60(msg.text);
+        long itemId = aiDb.addItem(title, kind, msg.text, chat.title);
+        db.updateMessageKind(msg.id, ContentUtil.readMessageKind(kind, itemId, title));
+        refreshMessages();
         Ui.toast(this, "Saved to Library");
     }
 
@@ -630,7 +640,10 @@ public class ChatActivity extends Activity {
      * (the caller then toasts "Saved to Library"). Web App Maker replies are
      * saved as web apps (clean HTML only) and the message is tagged so the
      * chat shows a compact card instead of the raw HTML; when the reply holds
-     * no HTML it is saved as notes instead, with its own toast.
+     * no HTML it is saved as notes instead, with its own toast. Every other
+     * creator reply is saved and tagged with a "read:" kind, so the chat
+     * shows a compact "[Quiz] Title - tap to read" card instead of the raw
+     * JSON or text, and tapping it opens the reader.
      */
     private boolean autoSave(String reply, List<AppDb.Skill> skills, long msgId, String userText) {
         String kind = Skills.libraryKindForSkills(skills);
@@ -652,15 +665,22 @@ public class ChatActivity extends Activity {
         }
         if (AiDb.KIND_QUIZ.equals(kind)) {
             List<QuizUtil.Question> qs = QuizUtil.parseQuiz(reply);
+            String title;
+            String content;
             if (!qs.isEmpty()) {
-                aiDb.addItem(QuizUtil.quizTitle(qs, chat.title),
-                        AiDb.KIND_QUIZ, QuizUtil.toJson(qs), chat.title);
+                title = QuizUtil.quizTitle(qs, chat.title);
+                content = QuizUtil.toJson(qs);
             } else {
-                aiDb.addItem(firstLine60(reply), AiDb.KIND_QUIZ, reply, chat.title);
+                title = firstLine60(reply);
+                content = reply;
             }
+            long itemId = aiDb.addItem(title, AiDb.KIND_QUIZ, content, chat.title);
+            db.updateMessageKind(msgId, ContentUtil.readMessageKind(AiDb.KIND_QUIZ, itemId, title));
             return true;
         }
-        aiDb.addItem(firstLine60(reply), kind, reply, chat.title);
+        String title = firstLine60(reply);
+        long itemId = aiDb.addItem(title, kind, reply, chat.title);
+        db.updateMessageKind(msgId, ContentUtil.readMessageKind(kind, itemId, title));
         return true;
     }
 
@@ -677,6 +697,54 @@ public class ChatActivity extends Activity {
     /** True when a message is a reply that was saved as a web app. */
     private static boolean isWebAppMessage(AppDb.Msg msg) {
         return msg != null && WebAppUtil.isWebAppMessageKind(msg.kind);
+    }
+
+    /** True when a message is a reply that was saved as a readable Library item. */
+    private static boolean isReadMessage(AppDb.Msg msg) {
+        return msg != null && ContentUtil.isReadMessageKind(msg.kind);
+    }
+
+    /** Opens the reader for the Library item behind a chat message (tap on its card). */
+    private void openReadMessage(final AppDb.Msg msg) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                AiDb.Item found = null;
+                long itemId = ContentUtil.readItemId(msg.kind);
+                if (itemId > 0) {
+                    AiDb.Item it = aiDb.getItem(itemId);
+                    if (it != null && ContentUtil.opensInReader(it.kind)) found = it;
+                }
+                if (found == null) {
+                    // id is stale (e.g. after a backup restore): match by kind + title
+                    String kind = ContentUtil.readKind(msg.kind);
+                    String title = ContentUtil.readTitle(msg.kind);
+                    if (!title.isEmpty()) {
+                        for (AiDb.Item it : aiDb.listItemSummaries(kind, null, null)) {
+                            if (title.equals(it.title)) {
+                                found = aiDb.getItem(it.id);
+                                break;
+                            }
+                        }
+                    }
+                }
+                final AiDb.Item target = found;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (target != null) {
+                            Intent i = new Intent(ChatActivity.this, ReaderActivity.class);
+                            i.putExtra("library_item_id", target.id);
+                            startActivity(i);
+                        } else {
+                            Ui.toast(ChatActivity.this,
+                                    "That item is no longer in the Library");
+                            startActivity(new Intent(ChatActivity.this, LibraryActivity.class));
+                        }
+                    }
+                });
+            }
+        }).start();
     }
 
     /** Opens the web app behind a chat message (tap on its card). */
@@ -768,6 +836,9 @@ public class ChatActivity extends Activity {
                 // never dump the raw HTML in the chat: a compact card instead
                 shown = "[Web app] " + WebAppUtil.extractTitle(msg.text, "Web app")
                         + " - tap to open";
+            } else if (isReadMessage(msg)) {
+                // never dump raw JSON in the chat: a compact read card instead
+                shown = ContentUtil.readCardText(msg.kind);
             }
             bubble.setText((selected ? "\u2611 " : selectionMode ? "\u2610 " : "") + shown);
             bubble.setTextSize(15f);

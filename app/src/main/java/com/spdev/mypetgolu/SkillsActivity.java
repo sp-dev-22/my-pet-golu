@@ -38,10 +38,11 @@ public class SkillsActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         db = new AppDb(this);
-        // seed the built-in skills once, off the UI thread (the v0.6.0/v0.7.0
-        // flags re-run seeding once on existing installs for the new skills)
+        // seed the built-in skills once, off the UI thread (the v0.6.0/v0.7.0/
+        // v0.8.0 flags re-run seeding once on existing installs for the new
+        // skills and prompt updates)
         if (!Prefs.isSkillsSeeded(this) || !Prefs.isSkillsSeededV60(this)
-                || !Prefs.isSkillsSeededV70(this)) {
+                || !Prefs.isSkillsSeededV70(this) || !Prefs.isSkillsSeededV80(this)) {
             final AppDb seedDb = db;
             new Thread(new Runnable() {
                 @Override
@@ -50,6 +51,7 @@ public class SkillsActivity extends Activity {
                     Prefs.setSkillsSeeded(SkillsActivity.this);
                     Prefs.setSkillsSeededV60(SkillsActivity.this);
                     Prefs.setSkillsSeededV70(SkillsActivity.this);
+                    Prefs.setSkillsSeededV80(SkillsActivity.this);
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {

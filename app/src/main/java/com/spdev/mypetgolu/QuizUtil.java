@@ -8,7 +8,7 @@ import java.util.List;
 
 /**
  * Parses and writes the quiz JSON used by Quiz Maker, the Library and the
- * offline asking mode. Schema per question:
+ * reader. Schema per question:
  * {"question":"...","options":["a","b","c","d"],"correctIndex":0,"explanation":"..."}
  * Parsing is tolerant: markdown fences and surrounding text are stripped.
  */

@@ -10,19 +10,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The app database (golu_app.db): chats, messages, skills, memory facts,
- * key-value settings and asking-mode sessions.
+ * The app database (golu_app.db): chats, messages, skills, memory facts
+ * and key-value settings.
  * NOTE: deleting a chat deletes its messages only - library items live in
  * AiDb and are never touched here.
  */
 public class AppDb extends SQLiteOpenHelper {
 
     private static final String DB = "golu_app.db";
-    private static final int VERSION = 2;
+    private static final int VERSION = 3;
 
     public static final String CHAT_AGENT = "agent";
     public static final String CHAT_CONVERSATION = "conversation";
-    public static final String CHAT_ASKING = "asking";
 
     public static final String ROLE_USER = "user";
     public static final String ROLE_AI = "ai";
@@ -77,16 +76,6 @@ public class AppDb extends SQLiteOpenHelper {
         public long created;
     }
 
-    public static class AskingSession {
-        public long id;
-        public String quizTitle;
-        public String quizJson;
-        public int current;
-        public int score;
-        public long created;
-        public long updated;
-    }
-
     public static class Setting {
         public String key;
         public String value;
@@ -126,14 +115,6 @@ public class AppDb extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE settings ("
                 + "key TEXT PRIMARY KEY,"
                 + "value TEXT)");
-        db.execSQL("CREATE TABLE asking_sessions ("
-                + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-                + "quiz_title TEXT,"
-                + "quiz_json TEXT NOT NULL,"
-                + "current INTEGER NOT NULL DEFAULT 0,"
-                + "score INTEGER NOT NULL DEFAULT 0,"
-                + "created INTEGER NOT NULL,"
-                + "updated INTEGER NOT NULL)");
     }
 
     @Override
@@ -143,6 +124,15 @@ public class AppDb extends SQLiteOpenHelper {
             db.execSQL("ALTER TABLE chats ADD COLUMN skill_ids TEXT");
             db.execSQL("UPDATE chats SET skill_ids = CAST(skill_id AS TEXT) "
                     + "WHERE skill_id > 0");
+        }
+        if (oldVersion < 3) {
+            // v0.8.0: Practice mode is gone - drop its sessions table and
+            // the Practice chat (with its messages). Library items live in
+            // AiDb and are not touched.
+            db.execSQL("DROP TABLE IF EXISTS asking_sessions");
+            db.execSQL("DELETE FROM messages WHERE chat_id IN "
+                    + "(SELECT id FROM chats WHERE kind='asking')");
+            db.execSQL("DELETE FROM chats WHERE kind='asking'");
         }
     }
 
@@ -181,7 +171,7 @@ public class AppDb extends SQLiteOpenHelper {
         return getWritableDatabase().insert("chats", null, v);
     }
 
-    /** The single persistent chat of a kind (conversation / asking). */
+    /** The single persistent chat of a kind (conversation). */
     public Chat getOrCreateSingleChat(String kind, String title, String model) {
         Chat c = getChatByKind(kind);
         if (c != null) return c;
@@ -368,7 +358,7 @@ public class AppDb extends SQLiteOpenHelper {
      * The pair a message belongs to, for multi-select delete: a user
      * message is its own pair key; an AI message belongs to the user
      * message right before it (or to itself when it has no user message
-     * before it, e.g. a Practice question). Two messages share a pair key
+     * before it, e.g. a lone AI message). Two messages share a pair key
      * exactly when deleteMessagePair would delete them together.
      */
     public static long pairKey(List<Msg> msgs, int position) {
@@ -608,87 +598,5 @@ public class AppDb extends SQLiteOpenHelper {
         v.put("fact", fact);
         v.put("created", created);
         return getWritableDatabase().insert("memory", null, v);
-    }
-
-    /** Re-inserts a practice session with its original timestamps (backup restore). */
-    public long restoreSession(String quizTitle, String quizJson, int current, int score,
-                               long created, long updated) {
-        ContentValues v = new ContentValues();
-        v.put("quiz_title", quizTitle);
-        v.put("quiz_json", quizJson);
-        v.put("current", current);
-        v.put("score", score);
-        v.put("created", created);
-        v.put("updated", updated);
-        return getWritableDatabase().insert("asking_sessions", null, v);
-    }
-
-    // ------------------------------------------------------- asking sessions
-
-    public long saveAskingSession(String quizTitle, String quizJson, int current, int score) {
-        long now = System.currentTimeMillis();
-        ContentValues v = new ContentValues();
-        v.put("quiz_title", quizTitle);
-        v.put("quiz_json", quizJson);
-        v.put("current", current);
-        v.put("score", score);
-        v.put("created", now);
-        v.put("updated", now);
-        return getWritableDatabase().insert("asking_sessions", null, v);
-    }
-
-    public AskingSession getAskingSession(long id) {
-        Cursor c = getReadableDatabase().query("asking_sessions", null, "id=?",
-                new String[]{String.valueOf(id)}, null, null, null);
-        try {
-            if (!c.moveToFirst()) return null;
-            AskingSession s = new AskingSession();
-            s.id = c.getLong(c.getColumnIndexOrThrow("id"));
-            s.quizTitle = c.getString(c.getColumnIndexOrThrow("quiz_title"));
-            s.quizJson = c.getString(c.getColumnIndexOrThrow("quiz_json"));
-            s.current = c.getInt(c.getColumnIndexOrThrow("current"));
-            s.score = c.getInt(c.getColumnIndexOrThrow("score"));
-            s.created = c.getLong(c.getColumnIndexOrThrow("created"));
-            s.updated = c.getLong(c.getColumnIndexOrThrow("updated"));
-            return s;
-        } finally {
-            c.close();
-        }
-    }
-
-    public List<AskingSession> listAskingSessions() {
-        List<AskingSession> out = new ArrayList<>();
-        Cursor c = getReadableDatabase().query("asking_sessions", null, null, null,
-                null, null, "updated DESC");
-        try {
-            while (c.moveToNext()) {
-                AskingSession s = new AskingSession();
-                s.id = c.getLong(c.getColumnIndexOrThrow("id"));
-                s.quizTitle = c.getString(c.getColumnIndexOrThrow("quiz_title"));
-                s.quizJson = c.getString(c.getColumnIndexOrThrow("quiz_json"));
-                s.current = c.getInt(c.getColumnIndexOrThrow("current"));
-                s.score = c.getInt(c.getColumnIndexOrThrow("score"));
-                s.created = c.getLong(c.getColumnIndexOrThrow("created"));
-                s.updated = c.getLong(c.getColumnIndexOrThrow("updated"));
-                out.add(s);
-            }
-        } finally {
-            c.close();
-        }
-        return out;
-    }
-
-    public void updateAskingSession(long id, int current, int score) {
-        ContentValues v = new ContentValues();
-        v.put("current", current);
-        v.put("score", score);
-        v.put("updated", System.currentTimeMillis());
-        getWritableDatabase().update("asking_sessions", v, "id=?",
-                new String[]{String.valueOf(id)});
-    }
-
-    public void deleteAskingSession(long id) {
-        getWritableDatabase().delete("asking_sessions", "id=?",
-                new String[]{String.valueOf(id)});
     }
 }

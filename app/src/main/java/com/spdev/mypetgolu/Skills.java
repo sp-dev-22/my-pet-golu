@@ -7,7 +7,7 @@ import android.content.Context;
  * can also create their own; these six are seeded on first run and are
  * protected from deletion (and from editing - tapping one only shows it).
  * The creator skills each carry a short demo JSON in the exact shape the
- * app parses, so Gemini always returns a format Practice mode can play.
+ * app parses, so Gemini always returns a format the reader can show.
  */
 public final class Skills {
 
@@ -28,10 +28,14 @@ public final class Skills {
 
     /**
      * Quiz Maker: the model must return ONLY a JSON array of questions.
-     * The demo JSON below shows the exact schema the app parses.
+     * The demo JSON below shows the exact schema the app parses. The quiz
+     * is READ in the reader (each answer hides behind a "Show answer"
+     * tap), so every explanation should teach something.
      */
     public static String quizMakerPrompt() {
         return "You are Golu's Quiz Maker. Create multiple-choice quiz questions for a student. "
+                + "The student will READ your quiz in a reader - each question shows its four "
+                + "options, and the answer is revealed only when they tap \"Show answer\".\n"
                 + "Follow these rules strictly:\n"
                 + "1. Reply with ONLY a JSON array - no markdown, no code fences, no extra text.\n"
                 + "2. Each question has exactly these fields: question, options (array of 4 strings), "
@@ -39,6 +43,8 @@ public final class Skills {
                 + "3. Match the language of the user's request (Hindi, English or Hinglish).\n"
                 + "4. If files are attached, base every question STRICTLY on their content.\n"
                 + "5. Keep options similar in length; only one option is correct.\n"
+                + "6. Write explanations that TEACH: one short sentence explaining WHY the "
+                + "answer is right, so the student learns while reading.\n"
                 + "Demo of the exact format (2 questions):\n"
                 + "[{\"question\":\"What is the capital of India?\","
                 + "\"options\":[\"Mumbai\",\"New Delhi\",\"Kolkata\",\"Chennai\"],"
@@ -53,14 +59,16 @@ public final class Skills {
 
     /**
      * One Liner Maker: the model must return ONLY a JSON array of one-line
-     * facts, in exactly the shape PracticeUtil.parseOneLiners reads.
+     * facts, in exactly the shape ContentUtil.parseOneLiners reads.
      * (Before v0.6.0 this skill returned plain bullet lines; the JSON shape
-     * lets Practice judge spoken recalls and keeps every creator skill in
-     * the same JSON family. The line format is still parsed as a fallback.)
+     * keeps every creator skill in the same JSON family. The line format is
+     * still parsed as a fallback.) The lines are READ in the reader, so
+     * each one must be complete and clear on its own.
      */
     public static String oneLinerPrompt() {
         return "You are Golu's One Liner Maker. Turn the topic or the attached files into short, "
-                + "crisp one-line facts that are easy to revise before an exam.\n"
+                + "crisp one-line facts that are easy to revise before an exam. The student will "
+                + "READ your lines in a reader, so each line must be complete and clear on its own.\n"
                 + "Rules:\n"
                 + "1. Reply with ONLY a JSON array - no markdown, no code fences, no extra text.\n"
                 + "2. Each item has exactly one field: \"line\" - ONE fact, short and complete "
@@ -77,17 +85,20 @@ public final class Skills {
 
     /**
      * Flashcard Maker: the model must return ONLY a JSON array of cards,
-     * in exactly the shape PracticeUtil.parseFlashcards reads.
+     * in exactly the shape ContentUtil.parseFlashcards reads. The cards
+     * are READ in the reader (tap a card to flip it), so the front and
+     * back must each make sense on their own.
      */
     public static String flashcardMakerPrompt() {
         return "You are Golu's Flashcard Maker. Turn the topic or the attached files into "
-                + "flashcards for quick revision.\n"
+                + "flashcards for quick revision. The student will READ your cards in a reader - "
+                + "they see the front first and tap the card to flip it over and read the back.\n"
                 + "Rules:\n"
                 + "1. Reply with ONLY a JSON array - no markdown, no code fences, no extra text.\n"
                 + "2. Each card has exactly two fields: \"front\" (the question, term or prompt) "
                 + "and \"back\" (the short answer or definition).\n"
                 + "3. Keep the front short (one question or term) and the back short (one or two "
-                + "sentences at most) so it can be recalled out loud.\n"
+                + "sentences at most) so each side is easy to read at a glance.\n"
                 + "4. Match the user's language (Hindi, English or Hinglish).\n"
                 + "5. If files are attached, base every card STRICTLY on their content.\n"
                 + "6. No introduction, no conclusion - just the JSON array.\n"
@@ -99,8 +110,14 @@ public final class Skills {
                 + "Now create the flashcards the user asked for, in exactly this format.";
     }
 
+    /**
+     * Questions Asker: numbered questions with an answer and a "Why" line
+     * each. The questions are READ in the reader, so every answer must be
+     * complete and clear on its own.
+     */
     public static String askerPrompt() {
-        return "You are Golu's Questions Asker. Create practice questions for a student.\n"
+        return "You are Golu's Questions Asker. Create study questions with answers for a student "
+                + "to read and revise.\n"
                 + "Rules:\n"
                 + "1. Reply with numbered questions. After each question, on the next line, "
                 + "write 'Answer: ' followed by the answer, then one short line starting with "
@@ -108,7 +125,10 @@ public final class Skills {
                 + "2. Mix easy, medium and hard questions.\n"
                 + "3. Match the user's language (Hindi, English or Hinglish).\n"
                 + "4. If files are attached, base every question STRICTLY on their content.\n"
-                + "5. No introduction or conclusion - start with question 1.";
+                + "5. No introduction or conclusion - start with question 1.\n"
+                + "6. Write answers that are complete on their own: the student reads them "
+                + "in a reader, so a bare one-word answer is not enough - add the short "
+                + "explanation in the 'Why: ' line.";
     }
 
     /**

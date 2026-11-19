@@ -51,9 +51,9 @@ public class GoluVoice {
     private SttListener sttListener;
     private boolean listening = false;
 
-    // continuous listening (Asking mode): restart the recognizer on
-    // silence/timeout until the deadline, so the mic lasts the whole
-    // answer time instead of stopping after a few quiet seconds
+    // continuous listening: restart the recognizer on silence/timeout
+    // until the deadline, so the mic keeps listening for the whole set
+    // time instead of stopping after a few quiet seconds
     private boolean continuous = false;
     private long listenDeadline = 0;
     private String listenLang = "";
@@ -136,7 +136,7 @@ public class GoluVoice {
         String clean = cleanForSpeech(text);
         if (clean.isEmpty()) {
             // nothing speakable: still report completion so callers that
-            // wait for onDone (e.g. Practice) move on instead of hanging
+            // wait for onDone (e.g. Talk) move on instead of hanging
             postTtsDone(utteranceId);
             return;
         }
@@ -260,8 +260,8 @@ public class GoluVoice {
      * Keeps listening for up to durationMs: whenever the recognizer stops
      * on silence or a timeout with no result, it restarts automatically
      * until the time is up (then onError("TIMEOUT")). A real result still
-     * ends listening immediately. Use for Asking mode, where mic time must
-     * equal the user's set answer time.
+     * ends listening immediately. Use when the mic must keep listening
+     * for a set time.
      */
     public void startListeningUntil(String languageTag, long durationMs, SttListener listener) {
         // reset first: a stale recognizer from an earlier question can still

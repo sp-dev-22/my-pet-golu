@@ -35,9 +35,8 @@ import java.util.TreeMap;
 /**
  * The Library: everything the AI created (quizzes, notes, flashcards,
  * one-liners, questions). Items live in folders (or unfiled). Filter by
- * kind and folder, search by title, tap to view, long-press to move or
- * delete. Quizzes, flashcards, one-liners and questions can be opened
- * straight into Practice mode ("Practice").
+ * kind and folder, search by title, tap to read in the reader, long-press
+ * to move or delete. Web apps open in the player ("Open").
  * "Manage" asks the helper model to organise unfiled items into folders.
  */
 public class LibraryActivity extends Activity {
@@ -342,7 +341,8 @@ public class LibraryActivity extends Activity {
             // never dump the raw HTML: a short card with an Open button
             TextView tv = new TextView(this);
             tv.setText("A web app made by Golu. Tap Open to play it - when you "
-                    + "finish, your result is sent back to Golu for feedback.");
+                    + "finish, you choose whether to share your result with Golu "
+                    + "for feedback.");
             tv.setTextSize(14f);
             tv.setTextColor(Ui.INK);
             tv.setPadding(Ui.dp(this, 16), Ui.dp(this, 12), Ui.dp(this, 16), Ui.dp(this, 12));
@@ -365,41 +365,15 @@ public class LibraryActivity extends Activity {
                     .show();
             return;
         }
-        if (PracticeUtil.isPracticableKind(item.kind)) {
-            String text = item.content;
-            if (AiDb.KIND_QUIZ.equals(item.kind)) {
-                List<QuizUtil.Question> qs = QuizUtil.parseQuiz(item.content);
-                if (!qs.isEmpty()) text = QuizUtil.displayAll(qs);
-            }
-            TextView tv = new TextView(this);
-            tv.setText(text);
-            tv.setTextSize(14f);
-            tv.setTextColor(Ui.INK);
-            tv.setPadding(Ui.dp(this, 16), Ui.dp(this, 12), Ui.dp(this, 16), Ui.dp(this, 12));
-            ScrollView sv = new ScrollView(this);
-            sv.addView(tv);
-            new AlertDialog.Builder(this)
-                    .setTitle(item.title)
-                    .setView(sv)
-                    .setPositiveButton("Practice", new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface d, int w) {
-                            Intent i = new Intent(LibraryActivity.this, AskingActivity.class);
-                            i.putExtra("library_item_id", item.id);
-                            startActivity(i);
-                        }
-                    })
-                    .setNeutralButton("Delete", new DialogInterface.OnClickListener() {
-                        @Override
-                        public void onClick(DialogInterface d, int w) {
-                            onItemDelete(item);
-                        }
-                    })
-                    .setNegativeButton("Close", null)
-                    .show();
-        } else {
-            Ui.showText(this, item.title, item.content);
-        }
+        // everything else opens in the reader (no raw text dump)
+        openReader(item);
+    }
+
+    /** Launches the reader for a Library item. */
+    private void openReader(AiDb.Item item) {
+        Intent i = new Intent(this, ReaderActivity.class);
+        i.putExtra("library_item_id", item.id);
+        startActivity(i);
     }
 
     /** Launches the WebView player for a web app item. */
@@ -413,16 +387,17 @@ public class LibraryActivity extends Activity {
         final boolean isWebApp = AiDb.KIND_WEBAPP.equals(item.kind);
         String[] options = isWebApp
                 ? new String[]{"Open", "Move to folder", "Delete"}
-                : new String[]{"Move to folder", "Delete"};
+                : new String[]{"Read", "Move to folder", "Delete"};
         new AlertDialog.Builder(this)
                 .setTitle(item.title)
                 .setItems(options,
                         new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface d, int which) {
-                                if (isWebApp && which == 0) {
-                                    openWebApp(item);
-                                } else if (which == (isWebApp ? 1 : 0)) {
+                                if (which == 0) {
+                                    if (isWebApp) openWebApp(item);
+                                    else openReader(item);
+                                } else if (which == 1) {
                                     onMoveToFolder(item);
                                 } else {
                                     onItemDelete(item);

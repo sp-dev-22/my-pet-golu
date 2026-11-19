@@ -15,7 +15,7 @@ import java.util.Calendar;
 /**
  * Daily study reminder. SettingsActivity schedules/cancels it via the
  * static methods below; when the alarm fires, a notification invites
- * the student back to Golu Study Buddy for a quick practice.
+ * the student back to Golu Study Buddy for a quick revision.
  * (Manifest registration is done separately.)
  */
 public class ReminderReceiver extends BroadcastReceiver {
@@ -49,7 +49,7 @@ public class ReminderReceiver extends BroadcastReceiver {
             builder = new Notification.Builder(context);
         }
         builder.setContentTitle("Time to study with Golu!")
-                .setContentText("Open Golu Study Buddy for a quick practice.")
+                .setContentText("Open Golu Study Buddy to revise with Golu.")
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentIntent(contentIntent)
                 .setAutoCancel(true);

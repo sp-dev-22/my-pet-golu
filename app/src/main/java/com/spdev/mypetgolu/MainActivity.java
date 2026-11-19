@@ -42,10 +42,11 @@ public class MainActivity extends Activity implements PetView.Listener {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
-        // seed the built-in skills once, off the UI thread (the v0.6.0/v0.7.0
-        // flags re-run seeding once on existing installs for the new skills)
+        // seed the built-in skills once, off the UI thread (the v0.6.0/v0.7.0/
+        // v0.8.0 flags re-run seeding once on existing installs for the new
+        // skills and prompt updates)
         if (!Prefs.isSkillsSeeded(this) || !Prefs.isSkillsSeededV60(this)
-                || !Prefs.isSkillsSeededV70(this)) {
+                || !Prefs.isSkillsSeededV70(this) || !Prefs.isSkillsSeededV80(this)) {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -53,15 +54,21 @@ public class MainActivity extends Activity implements PetView.Listener {
                     Prefs.setSkillsSeeded(MainActivity.this);
                     Prefs.setSkillsSeededV60(MainActivity.this);
                     Prefs.setSkillsSeededV70(MainActivity.this);
+                    Prefs.setSkillsSeededV80(MainActivity.this);
                 }
             }).start();
         }
+
+        // v0.8.0: map a saved pre-v0.8.0 accessory (Cap/Glasses) into the
+        // new hat and glasses slots, before the look is read anywhere
+        Prefs.migrateLookIfNeeded(this);
 
         setContentView(buildUi());
 
         pet.setListener(this);
         pet.setLook(Prefs.getPalette(this), Prefs.getGender(this),
-                Prefs.getOutfit(this), Prefs.getAccessory(this), Prefs.getClothesColor(this));
+                Prefs.getOutfit(this), Prefs.getAccessory(this), Prefs.getClothesColor(this),
+                Prefs.getHat(this), Prefs.getGlasses(this));
         status.setText("Golu is happy");
     }
 
@@ -70,7 +77,8 @@ public class MainActivity extends Activity implements PetView.Listener {
         super.onResume();
         if (pet != null) {
             pet.setLook(Prefs.getPalette(this), Prefs.getGender(this),
-                    Prefs.getOutfit(this), Prefs.getAccessory(this), Prefs.getClothesColor(this));
+                    Prefs.getOutfit(this), Prefs.getAccessory(this), Prefs.getClothesColor(this),
+                    Prefs.getHat(this), Prefs.getGlasses(this));
         }
     }
 
@@ -173,22 +181,16 @@ public class MainActivity extends Activity implements PetView.Listener {
                 startActivity(new Intent(MainActivity.this, ConversationActivity.class));
             }
         }));
-        row1.addView(navButton("Practice", new Runnable() {
+        row1.addView(navButton("Library", new Runnable() {
             @Override
             public void run() {
-                startActivity(new Intent(MainActivity.this, AskingActivity.class));
+                startActivity(new Intent(MainActivity.this, LibraryActivity.class));
             }
         }));
         panel.addView(row1);
 
         LinearLayout row2 = new LinearLayout(this);
         row2.setOrientation(LinearLayout.HORIZONTAL);
-        row2.addView(navButton("Library", new Runnable() {
-            @Override
-            public void run() {
-                startActivity(new Intent(MainActivity.this, LibraryActivity.class));
-            }
-        }));
         row2.addView(navButton("Files", new Runnable() {
             @Override
             public void run() {
@@ -201,16 +203,16 @@ public class MainActivity extends Activity implements PetView.Listener {
                 startActivity(new Intent(MainActivity.this, SkillsActivity.class));
             }
         }));
-        panel.addView(row2);
-
-        LinearLayout row3 = new LinearLayout(this);
-        row3.setOrientation(LinearLayout.HORIZONTAL);
-        row3.addView(navButton("Memory", new Runnable() {
+        row2.addView(navButton("Memory", new Runnable() {
             @Override
             public void run() {
                 startActivity(new Intent(MainActivity.this, MemoryActivity.class));
             }
         }));
+        panel.addView(row2);
+
+        LinearLayout row3 = new LinearLayout(this);
+        row3.setOrientation(LinearLayout.HORIZONTAL);
         row3.addView(navButton("Buddy", new Runnable() {
             @Override
             public void run() {
@@ -318,11 +320,15 @@ public class MainActivity extends Activity implements PetView.Listener {
         }));
         buddyContent.addView(genderRow);
 
-        // colours
+        // colours (14 dots: wrapped into rows of 7 so they fit any screen)
         buddyContent.addView(smallLabel("Colour"));
-        LinearLayout swatchRow = new LinearLayout(this);
-        swatchRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout swatchRow = null;
         for (int i = 0; i < PetView.PALETTE.length; i++) {
+            if (i % 7 == 0) {
+                swatchRow = new LinearLayout(this);
+                swatchRow.setOrientation(LinearLayout.HORIZONTAL);
+                buddyContent.addView(swatchRow);
+            }
             final int idx = i;
             View dot = new View(this);
             GradientDrawable g = new GradientDrawable();
@@ -344,7 +350,6 @@ public class MainActivity extends Activity implements PetView.Listener {
             lp.bottomMargin = dp(4);
             swatchRow.addView(dot, lp);
         }
-        buddyContent.addView(swatchRow);
 
         // outfits
         buddyContent.addView(smallLabel("Clothes"));
@@ -385,9 +390,13 @@ public class MainActivity extends Activity implements PetView.Listener {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         clothesRow.addView(defaultClothes);
         buddyContent.addView(clothesRow);
-        LinearLayout clothesSwatchRow = new LinearLayout(this);
-        clothesSwatchRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout clothesSwatchRow = null;
         for (int i = 0; i < PetView.CLOTHES_COLORS.length; i++) {
+            if (i % 7 == 0) {
+                clothesSwatchRow = new LinearLayout(this);
+                clothesSwatchRow.setOrientation(LinearLayout.HORIZONTAL);
+                buddyContent.addView(clothesSwatchRow);
+            }
             final int idx = i;
             View dot = new View(this);
             GradientDrawable g = new GradientDrawable();
@@ -410,7 +419,6 @@ public class MainActivity extends Activity implements PetView.Listener {
             lp.bottomMargin = dp(4);
             clothesSwatchRow.addView(dot, lp);
         }
-        buddyContent.addView(clothesSwatchRow);
 
         // accessories
         buddyContent.addView(smallLabel("Accessory"));
@@ -426,6 +434,48 @@ public class MainActivity extends Activity implements PetView.Listener {
                 @Override
                 public void run() {
                     pet.setLook(pet.getPalette(), pet.getGender(), pet.getOutfit(), idx);
+                    saveLook();
+                    fillBuddy();
+                }
+            }));
+        }
+
+        // hats (own slot: a hat can be worn together with glasses)
+        buddyContent.addView(smallLabel("Hat"));
+        LinearLayout hatRow = null;
+        for (int i = 0; i < PetView.HAT_NAME.length; i++) {
+            if (i % 3 == 0) {
+                hatRow = new LinearLayout(this);
+                hatRow.setOrientation(LinearLayout.HORIZONTAL);
+                buddyContent.addView(hatRow);
+            }
+            final int idx = i;
+            hatRow.addView(chip(PetView.HAT_NAME[i], pet.getHat() == i, new Runnable() {
+                @Override
+                public void run() {
+                    pet.setLook(pet.getPalette(), pet.getGender(), pet.getOutfit(),
+                            pet.getAccessory(), pet.getClothesColor(), idx, pet.getGlasses());
+                    saveLook();
+                    fillBuddy();
+                }
+            }));
+        }
+
+        // glasses (own slot)
+        buddyContent.addView(smallLabel("Glasses"));
+        LinearLayout glassesRow = null;
+        for (int i = 0; i < PetView.GLASSES_NAME.length; i++) {
+            if (i % 3 == 0) {
+                glassesRow = new LinearLayout(this);
+                glassesRow.setOrientation(LinearLayout.HORIZONTAL);
+                buddyContent.addView(glassesRow);
+            }
+            final int idx = i;
+            glassesRow.addView(chip(PetView.GLASSES_NAME[i], pet.getGlasses() == i, new Runnable() {
+                @Override
+                public void run() {
+                    pet.setLook(pet.getPalette(), pet.getGender(), pet.getOutfit(),
+                            pet.getAccessory(), pet.getClothesColor(), pet.getHat(), idx);
                     saveLook();
                     fillBuddy();
                 }
@@ -478,7 +528,8 @@ public class MainActivity extends Activity implements PetView.Listener {
 
     private void saveLook() {
         Prefs.saveLook(this, pet.getPalette(), pet.getGender(),
-                pet.getOutfit(), pet.getAccessory(), pet.getClothesColor());
+                pet.getOutfit(), pet.getAccessory(), pet.getClothesColor(),
+                pet.getHat(), pet.getGlasses());
     }
 
     // ------------------------------------------------------- pet interaction
@@ -486,7 +537,7 @@ public class MainActivity extends Activity implements PetView.Listener {
     // The Play actions were removed in v0.4.0: long-presses and swipes on
     // Golu no longer trigger actions. He stays a calm companion (idle
     // breathing, blinking, looking around) and speaks with lip-sync in
-    // Talk and Practice. A tap just makes him smile for a moment - a small
+    // Talk. A tap just makes him smile for a moment - a small
     // hello, not a toy action. The listener methods stay because PetView
     // still calls them.
 

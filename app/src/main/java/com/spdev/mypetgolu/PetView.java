@@ -41,22 +41,29 @@ public class PetView extends View {
             {0xFFD9D9E0, 0xFF9C9CA8, 0xFFF3F3F7, 0xFFFF8FA8},   // grey
             {0xFFC98B62, 0xFF8D5A34, 0xFFEBCBAF, 0xFFFF8FA8},   // cocoa
             {0xFFFFFFFF, 0xFFBFC4CC, 0xFFF2F6FA, 0xFFFF8FA8},   // snow
-            {0xFF8EE6E0, 0xFF41A8A2, 0xFFD6FBFA, 0xFFFF8FA8}    // aqua
+            {0xFF8EE6E0, 0xFF41A8A2, 0xFFD6FBFA, 0xFFFF8FA8},   // aqua
+            {0xFFFF8A65, 0xFFE64A19, 0xFFFFCCBC, 0xFFFF8FA8},   // coral
+            {0xFFAED581, 0xFF7CB342, 0xFFDCEDC8, 0xFFFF8FA8},   // lime
+            {0xFFF48FB1, 0xFFD81B60, 0xFFFCE4EC, 0xFFFF8FA8},   // rose
+            {0xFF9FA8DA, 0xFF5C6BC0, 0xFFC5CAE9, 0xFFFF8FA8}    // indigo
     };
 
     public static final String[] PALETTE_NAME = {
-            "Golden", "Pink", "Blue", "Mint", "Lavender", "Peach", "Grey", "Cocoa", "Snow", "Aqua"
+            "Golden", "Pink", "Blue", "Mint", "Lavender", "Peach", "Grey", "Cocoa", "Snow", "Aqua",
+            "Coral", "Lime", "Rose", "Indigo"
     };
 
     /** outfit shapes */
     public static final int OUT_NONE = 0, OUT_TSHIRT = 1, OUT_KURTA = 2, OUT_HOODIE = 3,
-            OUT_DRESS = 4, OUT_TOPSKIRT = 5, OUT_OVERALL = 6;
+            OUT_DRESS = 4, OUT_TOPSKIRT = 5, OUT_OVERALL = 6, OUT_JACKET = 7, OUT_SAREE = 8;
 
     public static final String[] OUTFIT_BOY = {
-            "None", "T-Shirt", "Kurta", "Hoodie", "Dungarees", "Night Suit", "Jersey"
+            "None", "T-Shirt", "Kurta", "Hoodie", "Dungarees", "Night Suit", "Jersey",
+            "Jacket", "Sweater", "Blazer", "Tracksuit"
     };
     public static final String[] OUTFIT_GIRL = {
-            "None", "Frock", "Kurta", "Hoodie", "Top & Skirt", "Night Suit", "Jersey"
+            "None", "Frock", "Kurta", "Hoodie", "Top & Skirt", "Night Suit", "Jersey",
+            "Jacket", "Sweater", "Gown", "Saree"
     };
     /** primary, secondary colour per outfit id, boy / girl */
     private static final int[][] OUTFIT_COLOR_BOY = {
@@ -66,7 +73,11 @@ public class PetView extends View {
             {0xFFEF6C00, 0xFFFFE0B2},   // hoodie orange
             {0xFF3F51B5, 0xFFFFD54F},   // dungarees indigo
             {0xFF263238, 0xFF80CBC4},   // night suit
-            {0xFF2E7D32, 0xFFFFFFFF}    // jersey
+            {0xFF2E7D32, 0xFFFFFFFF},   // jersey
+            {0xFF37474F, 0xFFFFC107},   // jacket slate + amber
+            {0xFF6D4C41, 0xFFFFCC80},   // sweater brown
+            {0xFF1A237E, 0xFF90CAF9},   // blazer navy
+            {0xFF00695C, 0xFFFFFFFF}    // tracksuit teal
     };
     private static final int[][] OUTFIT_COLOR_GIRL = {
             {0, 0},
@@ -75,10 +86,21 @@ public class PetView extends View {
             {0xFFD81B60, 0xFFFFCDD2},   // hoodie
             {0xFF00ACC1, 0xFFFFF59D},   // top and skirt
             {0xFF5E35B1, 0xFFB39DDB},   // night suit
-            {0xFF00897B, 0xFFFFFFFF}    // jersey
+            {0xFF00897B, 0xFFFFFFFF},   // jersey
+            {0xFFAD1457, 0xFFFFCDD2},   // jacket raspberry
+            {0xFF7B1FA2, 0xFFE1BEE7},   // sweater purple
+            {0xFF6A1B9A, 0xFFFFD54F},   // gown deep purple + gold
+            {0xFFD81B60, 0xFFFFD54F}    // saree pink + gold
     };
 
-    public static final String[] ACCESSORY_NAME = {"None", "Bow", "Cap", "Glasses", "Flower"};
+    /** hair accessories (own slot; hats and glasses have theirs) */
+    public static final String[] ACCESSORY_NAME = {"None", "Bow", "Flower", "Star Clip", "Earmuffs"};
+
+    /** hats (own slot, v0.8.0) */
+    public static final String[] HAT_NAME = {"None", "Cap", "Sun Hat", "Beanie", "Party Hat", "Crown"};
+
+    /** glasses (own slot, v0.8.0) */
+    public static final String[] GLASSES_NAME = {"None", "Glasses", "Round", "Sunglasses", "Star"};
 
     /** clothes colours the user can pick in the Buddy panel (-1 = the outfit's own colour) */
     public static final int[] CLOTHES_COLORS = {
@@ -91,12 +113,17 @@ public class PetView extends View {
             0xFF00ACC1,   // teal
             0xFFFFC107,   // yellow
             0xFF5D4037,   // brown
-            0xFF37474F    // slate
+            0xFF37474F,   // slate
+            0xFFFF7043,   // coral
+            0xFF9CCC65,   // lime
+            0xFFF06292,   // rose
+            0xFF283593    // navy
     };
 
     public static final String[] CLOTHES_COLOR_NAMES = {
             "Blue", "Pink", "Green", "Orange", "Purple",
-            "Red", "Teal", "Yellow", "Brown", "Slate"
+            "Red", "Teal", "Yellow", "Brown", "Slate",
+            "Coral", "Lime", "Rose", "Navy"
     };
 
     // ------------------------------------------------------------------- props
@@ -127,6 +154,8 @@ public class PetView extends View {
     private int palette = 0, gender = 0, outfit = 0, accessory = 0;
     /** clothes colour index into CLOTHES_COLORS; -1 = the outfit's own colour */
     private int clothesColor = -1;
+    /** hat index into HAT_NAME; glasses index into GLASSES_NAME (0 = none) */
+    private int hat = 0, glasses = 0;
 
     // activity state
     private int act = Acts.IDLE;
@@ -136,7 +165,7 @@ public class PetView extends View {
     // lip-sync: true while TTS is speaking (mouth opens and closes)
     private boolean speaking = false;
 
-    // compact header mode (Talk / Practice): the pet fills the short header
+    // compact header mode (Talk): the pet fills the short header
     // instead of standing 118dp up with empty sky below him
     private boolean compact = false;
 
@@ -202,17 +231,32 @@ public class PetView extends View {
     }
 
     public void setLook(int palette, int gender, int outfit, int accessory, int clothesColor) {
+        setLook(palette, gender, outfit, accessory, clothesColor, hat, glasses);
+    }
+
+    public void setLook(int palette, int gender, int outfit, int accessory, int clothesColor,
+                        int hat, int glasses) {
         this.palette = palette;
         this.gender = gender;
-        this.outfit = Math.max(0, Math.min(6, outfit));
+        this.outfit = Math.max(0, Math.min(OUTFIT_BOY.length - 1, outfit));
         this.accessory = accessory;
         this.clothesColor = clothesColor;
+        this.hat = Math.max(0, Math.min(HAT_NAME.length - 1, hat));
+        this.glasses = Math.max(0, Math.min(GLASSES_NAME.length - 1, glasses));
         resolveColors();
         invalidate();
     }
 
     public int getClothesColor() {
         return clothesColor;
+    }
+
+    public int getHat() {
+        return hat;
+    }
+
+    public int getGlasses() {
+        return glasses;
     }
 
     public int getPalette() {
@@ -260,6 +304,9 @@ public class PetView extends View {
                 case 3: return OUT_HOODIE;
                 case 4: return OUT_OVERALL;
                 case 5: return OUT_TSHIRT;
+                case 7: return OUT_JACKET;
+                case 8: return OUT_TSHIRT;
+                case 9: return OUT_JACKET;
                 default: return OUT_TSHIRT;
             }
         } else {
@@ -269,6 +316,10 @@ public class PetView extends View {
                 case 3: return OUT_HOODIE;
                 case 4: return OUT_TOPSKIRT;
                 case 5: return OUT_TSHIRT;
+                case 7: return OUT_JACKET;
+                case 8: return OUT_TSHIRT;
+                case 9: return OUT_DRESS;
+                case 10: return OUT_SAREE;
                 default: return OUT_TSHIRT;
             }
         }
@@ -303,9 +354,9 @@ public class PetView extends View {
     }
 
     // -------------------------------------------------------------- reactions
-    // Practice answers drive Buddy's mood: a right answer makes him jump
-    // for joy (bounce, arms up, big smile), a wrong one makes him droop.
-    // Each reaction plays once and returns to idle on its own.
+    // Buddy's mood reactions: a right answer makes him jump for joy
+    // (bounce, arms up, big smile), a wrong one makes him droop. Each
+    // reaction plays once and returns to idle on its own.
 
     /** Happy celebrate animation: bounce, arms up, big smile. */
     public void celebrate() {
@@ -317,7 +368,7 @@ public class PetView extends View {
         setActivity(Acts.CRY);
     }
 
-    /** One reaction for Practice: celebrate a right answer, droop for a wrong one. */
+    /** One reaction for a right or wrong answer: celebrate or droop. */
     public void playReaction(boolean correct) {
         if (correct) celebrate();
         else reactSad();
@@ -408,6 +459,8 @@ public class PetView extends View {
         drawHead(c);
         drawFace(c, t, pose);
         drawAccessory(c);
+        drawHat(c);
+        drawGlasses(c);
         c.restore();
         c.restore();
 
@@ -1063,6 +1116,51 @@ public class PetView extends View {
                 fr(c, cx - R * 0.30f, bodyCy + R * 0.18f, cx + R * 0.30f, bodyCy + R * 0.46f, R * 0.08f, accent);
                 break;
             }
+            case OUT_JACKET: {
+                // jacket / blazer: shirt body, open front with a zipper line,
+                // collar triangles and two pockets
+                fo(c, cx - R * 0.82f, bt, cx + R * 0.82f, bb, main);
+                fc(c, cx - R * 0.78f, bodyCy - R * 0.30f, R * 0.20f, main);
+                fc(c, cx + R * 0.78f, bodyCy - R * 0.30f, R * 0.20f, main);
+                // collar
+                path.reset();
+                path.moveTo(cx - R * 0.24f, bt);
+                path.lineTo(cx, bt + R * 0.30f);
+                path.lineTo(cx + R * 0.24f, bt);
+                path.close();
+                fill.setColor(accent);
+                c.drawPath(path, fill);
+                // zipper
+                ln(c, cx, bt + R * 0.28f, cx, bb - R * 0.05f, R * 0.035f, accent);
+                // pockets
+                fr(c, cx - R * 0.66f, bodyCy + R * 0.22f, cx - R * 0.30f, bodyCy + R * 0.38f, R * 0.06f, accent);
+                fr(c, cx + R * 0.30f, bodyCy + R * 0.22f, cx + R * 0.66f, bodyCy + R * 0.38f, R * 0.06f, accent);
+                break;
+            }
+            case OUT_SAREE: {
+                // saree: blouse + draped skirt with a diagonal gold sash
+                fo(c, cx - R * 0.66f, bt, cx + R * 0.66f, bodyCy + R * 0.16f, main);
+                path.reset();
+                path.moveTo(cx - R * 0.55f, bodyCy + R * 0.05f);
+                path.lineTo(cx - R * 1.02f, bodyCy + R * 0.95f);
+                path.quadTo(cx, bodyCy + R * 1.16f, cx + R * 1.02f, bodyCy + R * 0.95f);
+                path.lineTo(cx + R * 0.55f, bodyCy + R * 0.05f);
+                path.close();
+                fill.setColor(main);
+                c.drawPath(path, fill);
+                // diagonal sash (pallu) from the left shoulder down right
+                path.reset();
+                path.moveTo(cx - R * 0.45f, bt + R * 0.05f);
+                path.lineTo(cx - R * 0.15f, bt + R * 0.05f);
+                path.lineTo(cx + R * 0.85f, bodyCy + R * 0.90f);
+                path.lineTo(cx + R * 0.55f, bodyCy + R * 0.95f);
+                path.close();
+                fill.setColor(accent);
+                c.drawPath(path, fill);
+                // hem
+                ln(c, cx - R * 0.95f, bodyCy + R * 0.93f, cx + R * 0.95f, bodyCy + R * 0.93f, R * 0.05f, accent);
+                break;
+            }
             default:
                 break;
         }
@@ -1231,6 +1329,7 @@ public class PetView extends View {
         }
     }
 
+    /** Hair accessories: bow, flower, star clip, earmuffs (hats and glasses have their own slots). */
     private void drawAccessory(Canvas c) {
         switch (accessory) {
             case 1: { // bow
@@ -1251,7 +1350,44 @@ public class PetView extends View {
                 fc(c, bx, by, headR * 0.07f, 0xFFFF80AB);
                 break;
             }
-            case 2: { // cap
+            case 2: { // flower
+                float fx = cx - headR * 0.62f, fy = headCy - headR * 0.72f;
+                for (int i = 0; i < 5; i++) {
+                    double a = i * Math.PI * 2 / 5;
+                    fc(c, fx + (float) Math.cos(a) * headR * 0.13f,
+                            fy + (float) Math.sin(a) * headR * 0.13f, headR * 0.10f, 0xFFFFEB3B);
+                }
+                fc(c, fx, fy, headR * 0.08f, 0xFFFF7043);
+                break;
+            }
+            case 3: { // star clip
+                float sx = cx - headR * 0.58f, sy = headCy - headR * 0.68f;
+                drawStar(c, sx, sy, headR * 0.16f, 0xFFFFC107, true);
+                fc(c, sx, sy, headR * 0.045f, 0xFFFFF176);
+                break;
+            }
+            case 4: { // earmuffs: band over the head + two fluffy cups on the ears
+                stroke.setColor(0xFF5D4037);
+                stroke.setStrokeWidth(headR * 0.08f);
+                path.reset();
+                path.arcTo(new RectF(cx - headR * 0.95f, headCy - headR * 1.15f,
+                        cx + headR * 0.95f, headCy + headR * 0.35f), 180f, 180f, false);
+                c.drawPath(path, stroke);
+                fc(c, cx - headR * 0.95f, headCy - headR * 0.10f, headR * 0.22f, 0xFFFF8A65);
+                sc(c, cx - headR * 0.95f, headCy - headR * 0.10f, headR * 0.22f, R * 0.03f, 0xFF5D4037);
+                fc(c, cx + headR * 0.95f, headCy - headR * 0.10f, headR * 0.22f, 0xFFFF8A65);
+                sc(c, cx + headR * 0.95f, headCy - headR * 0.10f, headR * 0.22f, R * 0.03f, 0xFF5D4037);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    /** Hats: cap, sun hat, beanie, party hat, crown. */
+    private void drawHat(Canvas c) {
+        switch (hat) {
+            case 1: { // cap
                 path.reset();
                 path.arcTo(new RectF(cx - headR * 0.92f, headCy - headR * 1.22f,
                         cx + headR * 0.92f, headCy + headR * 0.30f), 180f, 180f, true);
@@ -1262,30 +1398,137 @@ public class PetView extends View {
                         headCy - headR * 0.26f, headR * 0.08f, 0xFF0D47A1);
                 break;
             }
-            case 3: { // glasses
-                float gy = headCy - headR * 0.06f;
-                float gx = headR * 0.34f;
-                stroke.setColor(0xFF37474F);
-                stroke.setStrokeWidth(headR * 0.045f);
-                rf.set(cx - gx - headR * 0.24f, gy - headR * 0.20f, cx - gx + headR * 0.24f, gy + headR * 0.20f);
-                c.drawRoundRect(rf, headR * 0.08f, headR * 0.08f, stroke);
-                rf.set(cx + gx - headR * 0.24f, gy - headR * 0.20f, cx + gx + headR * 0.24f, gy + headR * 0.20f);
-                c.drawRoundRect(rf, headR * 0.08f, headR * 0.08f, stroke);
-                ln(c, cx - gx + headR * 0.24f, gy, cx + gx - headR * 0.24f, gy, headR * 0.04f, 0xFF37474F);
+            case 2: { // sun hat: wide brim + dome + band
+                fo(c, cx - headR * 1.15f, headCy - headR * 0.52f, cx + headR * 1.15f,
+                        headCy - headR * 0.22f, 0xFFFFE082);
+                path.reset();
+                path.arcTo(new RectF(cx - headR * 0.62f, headCy - headR * 1.10f,
+                        cx + headR * 0.62f, headCy - headR * 0.10f), 180f, 180f, true);
+                path.close();
+                fill.setColor(0xFFFFD54F);
+                c.drawPath(path, fill);
+                fr(c, cx - headR * 0.62f, headCy - headR * 0.48f, cx + headR * 0.62f,
+                        headCy - headR * 0.34f, headR * 0.05f, 0xFFE91E63);
                 break;
             }
-            case 4: { // flower
-                float fx = cx - headR * 0.62f, fy = headCy - headR * 0.72f;
-                for (int i = 0; i < 5; i++) {
-                    double a = i * Math.PI * 2 / 5;
-                    fc(c, fx + (float) Math.cos(a) * headR * 0.13f,
-                            fy + (float) Math.sin(a) * headR * 0.13f, headR * 0.10f, 0xFFFFEB3B);
-                }
-                fc(c, fx, fy, headR * 0.08f, 0xFFFF7043);
+            case 3: { // beanie: dome + ribbed band + pompom
+                path.reset();
+                path.arcTo(new RectF(cx - headR * 0.88f, headCy - headR * 1.28f,
+                        cx + headR * 0.88f, headCy + headR * 0.20f), 180f, 180f, true);
+                path.close();
+                fill.setColor(0xFF7B1FA2);
+                c.drawPath(path, fill);
+                fr(c, cx - headR * 0.88f, headCy - headR * 0.50f, cx + headR * 0.88f,
+                        headCy - headR * 0.28f, headR * 0.07f, 0xFF4A148C);
+                fc(c, cx, headCy - headR * 1.30f, headR * 0.16f, 0xFFFFF176);
+                break;
+            }
+            case 4: { // party hat: striped cone + pompom
+                path.reset();
+                path.moveTo(cx - headR * 0.55f, headCy - headR * 0.55f);
+                path.lineTo(cx + headR * 0.10f, headCy - headR * 1.45f);
+                path.lineTo(cx + headR * 0.62f, headCy - headR * 0.45f);
+                path.close();
+                fill.setColor(0xFFE91E63);
+                c.drawPath(path, fill);
+                ln(c, cx - headR * 0.38f, headCy - headR * 0.78f, cx + headR * 0.38f,
+                        headCy - headR * 0.72f, headR * 0.09f, 0xFFFFEB3B);
+                ln(c, cx - headR * 0.18f, headCy - headR * 1.02f, cx + headR * 0.22f,
+                        headCy - headR * 0.98f, headR * 0.08f, 0xFF00ACC1);
+                fc(c, cx + headR * 0.10f, headCy - headR * 1.48f, headR * 0.11f, 0xFFFFEB3B);
+                break;
+            }
+            case 5: { // crown: zigzag band with three tips
+                float cy = headCy - headR * 0.95f;
+                path.reset();
+                path.moveTo(cx - headR * 0.62f, cy + headR * 0.28f);
+                path.lineTo(cx - headR * 0.62f, cy);
+                path.lineTo(cx - headR * 0.31f, cy + headR * 0.16f);
+                path.lineTo(cx, cy - headR * 0.18f);
+                path.lineTo(cx + headR * 0.31f, cy + headR * 0.16f);
+                path.lineTo(cx + headR * 0.62f, cy);
+                path.lineTo(cx + headR * 0.62f, cy + headR * 0.28f);
+                path.close();
+                fill.setColor(0xFFFFC107);
+                c.drawPath(path, fill);
+                fc(c, cx - headR * 0.62f, cy - headR * 0.04f, headR * 0.06f, 0xFFE91E63);
+                fc(c, cx, cy - headR * 0.22f, headR * 0.07f, 0xFF00ACC1);
+                fc(c, cx + headR * 0.62f, cy - headR * 0.04f, headR * 0.06f, 0xFFE91E63);
                 break;
             }
             default:
                 break;
+        }
+    }
+
+    /** Glasses: square, round, sunglasses, star. */
+    private void drawGlasses(Canvas c) {
+        if (glasses == 0) return;
+        float gy = headCy - headR * 0.06f;
+        float gx = headR * 0.34f;
+        float lw = headR * 0.24f;   // half lens width
+        float lh = headR * 0.20f;   // half lens height
+        switch (glasses) {
+            case 1: { // square glasses
+                stroke.setColor(0xFF37474F);
+                stroke.setStrokeWidth(headR * 0.045f);
+                rf.set(cx - gx - lw, gy - lh, cx - gx + lw, gy + lh);
+                c.drawRoundRect(rf, headR * 0.08f, headR * 0.08f, stroke);
+                rf.set(cx + gx - lw, gy - lh, cx + gx + lw, gy + lh);
+                c.drawRoundRect(rf, headR * 0.08f, headR * 0.08f, stroke);
+                ln(c, cx - gx + lw, gy, cx + gx - lw, gy, headR * 0.04f, 0xFF37474F);
+                break;
+            }
+            case 2: { // round glasses
+                stroke.setColor(0xFF6D4C41);
+                stroke.setStrokeWidth(headR * 0.045f);
+                c.drawCircle(cx - gx, gy, headR * 0.23f, stroke);
+                c.drawCircle(cx + gx, gy, headR * 0.23f, stroke);
+                ln(c, cx - gx + headR * 0.23f, gy, cx + gx - headR * 0.23f, gy,
+                        headR * 0.04f, 0xFF6D4C41);
+                break;
+            }
+            case 3: { // sunglasses: dark filled lenses with a shine
+                fr(c, cx - gx - lw, gy - lh, cx - gx + lw, gy + lh, headR * 0.10f, 0xFF263238);
+                fr(c, cx + gx - lw, gy - lh, cx + gx + lw, gy + lh, headR * 0.10f, 0xFF263238);
+                ln(c, cx - gx + lw, gy, cx + gx - lw, gy, headR * 0.045f, 0xFF263238);
+                ln(c, cx - gx - lw * 0.45f, gy - lh * 0.55f, cx - gx + lw * 0.15f, gy + lh * 0.45f,
+                        headR * 0.05f, 0xAAFFFFFF);
+                ln(c, cx + gx - lw * 0.45f, gy - lh * 0.55f, cx + gx + lw * 0.15f, gy + lh * 0.45f,
+                        headR * 0.05f, 0xAAFFFFFF);
+                break;
+            }
+            case 4: { // star glasses
+                drawStar(c, cx - gx, gy, headR * 0.26f, 0xFFE91E63, false);
+                drawStar(c, cx + gx, gy, headR * 0.26f, 0xFFE91E63, false);
+                ln(c, cx - gx + headR * 0.24f, gy, cx + gx - headR * 0.24f, gy,
+                        headR * 0.04f, 0xFFE91E63);
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    /** Five-point star, filled or just outlined. */
+    private void drawStar(Canvas c, float x, float y, float r, int color, boolean filled) {
+        path.reset();
+        for (int i = 0; i < 10; i++) {
+            double a = -Math.PI / 2 + i * Math.PI / 5;
+            float rr = (i % 2 == 0) ? r : r * 0.45f;
+            float px = x + (float) Math.cos(a) * rr;
+            float py = y + (float) Math.sin(a) * rr;
+            if (i == 0) path.moveTo(px, py);
+            else path.lineTo(px, py);
+        }
+        path.close();
+        if (filled) {
+            fill.setColor(color);
+            c.drawPath(path, fill);
+        } else {
+            stroke.setColor(color);
+            stroke.setStrokeWidth(r * 0.16f);
+            c.drawPath(path, stroke);
         }
     }
 

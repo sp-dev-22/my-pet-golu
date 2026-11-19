@@ -36,8 +36,8 @@ import java.util.zip.ZipOutputStream;
  * - manifest.json: {"format":"golu-backup","formatVersion":1,
  *   "appVersion":"0.5.0","exportedAt":...,"counts":{...}}
  * - data.json: all three databases' data (user folders + files metadata,
- *   library items, chats + messages, skills, memories, app settings,
- *   practice sessions) plus the app preferences.
+ *   library items, chats + messages, skills, memories, app settings)
+ *   plus the app preferences.
  * - files/N_name: the actual user file bytes, referenced from
  *   data.json by each file's "zipEntry".
  *
@@ -61,7 +61,7 @@ public final class Backup {
     /** Format version this build reads and writes. */
     public static final int FORMAT_VERSION = 1;
     /** App version that wrote the backup (informational). */
-    public static final String APP_VERSION = "0.5.0";
+    public static final String APP_VERSION = "0.8.0";
 
     /** Largest data.json accepted on restore (50 MB of text is plenty). */
     private static final long MAX_DATA_JSON_BYTES = 50L * 1024L * 1024L;
@@ -122,9 +122,6 @@ public final class Backup {
         chats.addAll(appDb.listChats(AppDb.CHAT_AGENT));
         AppDb.Chat convo = appDb.getChatByKind(AppDb.CHAT_CONVERSATION);
         if (convo != null) chats.add(convo);
-        AppDb.Chat asking = appDb.getChatByKind(AppDb.CHAT_ASKING);
-        if (asking != null) chats.add(asking);
-        List<AppDb.AskingSession> sessions = appDb.listAskingSessions();
         List<AppDb.Setting> settings = appDb.listSettings();
 
         JSONObject data = new JSONObject();
@@ -180,7 +177,7 @@ public final class Backup {
         ai.put("library", libArr);
         data.put("aiDb", ai);
 
-        // --- app database: skills, chats, messages, memories, settings, sessions
+        // --- app database: skills, chats, messages, memories, settings
         JSONObject app = new JSONObject();
         JSONArray skillsArr = new JSONArray();
         for (AppDb.Skill sk : skills) {
@@ -234,18 +231,6 @@ public final class Backup {
             setArr.put(o);
         }
         app.put("settings", setArr);
-        JSONArray sessArr = new JSONArray();
-        for (AppDb.AskingSession ss : sessions) {
-            JSONObject o = new JSONObject();
-            o.put("quizTitle", ss.quizTitle == null ? "" : ss.quizTitle);
-            o.put("quizJson", ss.quizJson);
-            o.put("current", ss.current);
-            o.put("score", ss.score);
-            o.put("created", ss.created);
-            o.put("updated", ss.updated);
-            sessArr.put(o);
-        }
-        app.put("sessions", sessArr);
         data.put("appDb", app);
 
         // --- preferences (the API key is never included - see Prefs)
@@ -264,7 +249,6 @@ public final class Backup {
         counts.put("messages", msgCount);
         counts.put("skills", skills.size());
         counts.put("memories", memories.size());
-        counts.put("sessions", sessions.size());
         manifest.put("counts", counts);
 
         ZipOutputStream zip = new ZipOutputStream(out);
@@ -296,7 +280,6 @@ public final class Backup {
         s.messages = msgCount;
         s.skills = skills.size();
         s.memories = memories.size();
-        s.sessions = sessions.size();
         s.exportedAt = System.currentTimeMillis();
         s.appVersion = APP_VERSION;
         s.message = describe(s);
@@ -535,6 +518,13 @@ public final class Backup {
                 for (int i = 0; i < chatsArr.length(); i++) {
                     try {
                         JSONObject o = chatsArr.getJSONObject(i);
+                        // v0.8.0: Practice mode is gone - skip an "asking"
+                        // chat from an old backup (its messages are skipped
+                        // too, since the chat id never enters chatMap)
+                        if ("asking".equals(o.optString("kind", ""))) {
+                            skipped++;
+                            continue;
+                        }
                         long oldId = o.optLong("id", -1);
                         String skillIds = remapSkillIds(
                                 o.optString("skillIds", ""), skillMap);
@@ -622,23 +612,8 @@ public final class Backup {
                     }
                 }
             }
-            // practice sessions
-            JSONArray sessArr = optArr(data, "appDb", "sessions");
-            if (sessArr != null) {
-                for (int i = 0; i < sessArr.length(); i++) {
-                    try {
-                        JSONObject o = sessArr.getJSONObject(i);
-                        appDb.restoreSession(o.optString("quizTitle", ""),
-                                o.optString("quizJson", ""),
-                                o.optInt("current", 0), o.optInt("score", 0),
-                                o.optLong("created", System.currentTimeMillis()),
-                                o.optLong("updated", System.currentTimeMillis()));
-                        s.sessions++;
-                    } catch (Exception ex) {
-                        skipped++;
-                    }
-                }
-            }
+            // (v0.8.0: old backups may still carry an "appDb.sessions"
+            // array - it is simply ignored now that Practice mode is gone)
             // files: extract bytes from the zip (third pass) + register rows
             JSONArray filesArr = optArr(data, "userDb", "files");
             if (filesArr != null && filesArr.length() > 0) {
