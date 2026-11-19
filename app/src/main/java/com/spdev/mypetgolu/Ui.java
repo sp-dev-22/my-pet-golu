@@ -35,6 +35,7 @@ public final class Ui {
     public static final int LINE = 0xFFE0C08A;
     public static final int BUBBLE_USER = 0xFFFFE0B2;
     public static final int BUBBLE_AI = 0xFFFFFFFF;
+    public static final int BUBBLE_SELECTED = 0xFFBBDEFB;
     public static final int CHIP_BG = 0xFFFFF3E0;
 
     public static int dp(Context c, float v) {

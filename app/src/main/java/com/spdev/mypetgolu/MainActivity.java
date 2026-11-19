@@ -42,13 +42,15 @@ public class MainActivity extends Activity implements PetView.Listener {
         getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
                 WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
-        // seed the built-in skills once, off the UI thread
-        if (!Prefs.isSkillsSeeded(this)) {
+        // seed the built-in skills once, off the UI thread (the v0.6.0 flag
+        // re-runs seeding once on existing installs for the new skill)
+        if (!Prefs.isSkillsSeeded(this) || !Prefs.isSkillsSeededV60(this)) {
             new Thread(new Runnable() {
                 @Override
                 public void run() {
                     Skills.seed(new AppDb(MainActivity.this));
                     Prefs.setSkillsSeeded(MainActivity.this);
+                    Prefs.setSkillsSeededV60(MainActivity.this);
                 }
             }).start();
         }
@@ -57,7 +59,7 @@ public class MainActivity extends Activity implements PetView.Listener {
 
         pet.setListener(this);
         pet.setLook(Prefs.getPalette(this), Prefs.getGender(this),
-                Prefs.getOutfit(this), Prefs.getAccessory(this));
+                Prefs.getOutfit(this), Prefs.getAccessory(this), Prefs.getClothesColor(this));
         status.setText("Golu is happy");
     }
 
@@ -66,7 +68,7 @@ public class MainActivity extends Activity implements PetView.Listener {
         super.onResume();
         if (pet != null) {
             pet.setLook(Prefs.getPalette(this), Prefs.getGender(this),
-                    Prefs.getOutfit(this), Prefs.getAccessory(this));
+                    Prefs.getOutfit(this), Prefs.getAccessory(this), Prefs.getClothesColor(this));
         }
     }
 
@@ -362,6 +364,52 @@ public class MainActivity extends Activity implements PetView.Listener {
             }));
         }
 
+        // clothes colour (like the body colour row above)
+        buddyContent.addView(smallLabel("Clothes colour"));
+        LinearLayout clothesRow = new LinearLayout(this);
+        clothesRow.setOrientation(LinearLayout.HORIZONTAL);
+        TextView defaultClothes = chip("Default", pet.getClothesColor() < 0, new Runnable() {
+            @Override
+            public void run() {
+                pet.setLook(pet.getPalette(), pet.getGender(), pet.getOutfit(),
+                        pet.getAccessory(), -1);
+                saveLook();
+                fillBuddy();
+            }
+        });
+        // chip() sets weight-1 params for multi-chip rows; alone here it
+        // should wrap its text instead of stretching full width
+        defaultClothes.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        clothesRow.addView(defaultClothes);
+        buddyContent.addView(clothesRow);
+        LinearLayout clothesSwatchRow = new LinearLayout(this);
+        clothesSwatchRow.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < PetView.CLOTHES_COLORS.length; i++) {
+            final int idx = i;
+            View dot = new View(this);
+            GradientDrawable g = new GradientDrawable();
+            g.setShape(GradientDrawable.OVAL);
+            g.setColor(PetView.CLOTHES_COLORS[i]);
+            g.setStroke(dp(pet.getClothesColor() == i ? 3 : 1.5f),
+                    pet.getClothesColor() == i ? 0xFF3E2723 : 0xFFB0A090);
+            dot.setBackground(g);
+            dot.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    pet.setLook(pet.getPalette(), pet.getGender(), pet.getOutfit(),
+                            pet.getAccessory(), idx);
+                    saveLook();
+                    fillBuddy();
+                }
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(30), dp(30));
+            lp.rightMargin = dp(6);
+            lp.bottomMargin = dp(4);
+            clothesSwatchRow.addView(dot, lp);
+        }
+        buddyContent.addView(clothesSwatchRow);
+
         // accessories
         buddyContent.addView(smallLabel("Accessory"));
         LinearLayout accRow = null;
@@ -428,20 +476,21 @@ public class MainActivity extends Activity implements PetView.Listener {
 
     private void saveLook() {
         Prefs.saveLook(this, pet.getPalette(), pet.getGender(),
-                pet.getOutfit(), pet.getAccessory());
+                pet.getOutfit(), pet.getAccessory(), pet.getClothesColor());
     }
 
     // ------------------------------------------------------- pet interaction
 
-    // The Play actions were removed in v0.4.0: taps, long-presses and
-    // swipes on Golu no longer trigger actions. He stays a calm companion
-    // (idle animation, blinking, looking around) and speaks with lip-sync
-    // in Talk and Practice. The listener methods stay because PetView
+    // The Play actions were removed in v0.4.0: long-presses and swipes on
+    // Golu no longer trigger actions. He stays a calm companion (idle
+    // breathing, blinking, looking around) and speaks with lip-sync in
+    // Talk and Practice. A tap just makes him smile for a moment - a small
+    // hello, not a toy action. The listener methods stay because PetView
     // still calls them.
 
     @Override
     public void onPetTapped() {
-        // no action
+        pet.setActivity(Acts.SMILE);
     }
 
     @Override

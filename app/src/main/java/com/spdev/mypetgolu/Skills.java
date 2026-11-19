@@ -4,14 +4,17 @@ import android.content.Context;
 
 /**
  * Built-in skills (system prompts). Skills are stored in AppDb so the user
- * can also create their own; these four are seeded on first run and are
- * protected from deletion.
+ * can also create their own; these five are seeded on first run and are
+ * protected from deletion (and from editing - tapping one only shows it).
+ * The creator skills each carry a short demo JSON in the exact shape the
+ * app parses, so Gemini always returns a format Practice mode can play.
  */
 public final class Skills {
 
     public static final String NAME_DEFAULT = "Golu Tutor";
     public static final String NAME_QUIZ_MAKER = "Quiz Maker";
     public static final String NAME_ONELINER = "One Liner Maker";
+    public static final String NAME_FLASHCARD = "Flashcard Maker";
     public static final String NAME_ASKER = "Questions Asker";
 
     public static String defaultPrompt() {
@@ -47,15 +50,52 @@ public final class Skills {
                 + "Now create the quiz the user asked for, in exactly this format.";
     }
 
+    /**
+     * One Liner Maker: the model must return ONLY a JSON array of one-line
+     * facts, in exactly the shape PracticeUtil.parseOneLiners reads.
+     * (Before v0.6.0 this skill returned plain bullet lines; the JSON shape
+     * lets Practice judge spoken recalls and keeps every creator skill in
+     * the same JSON family. The line format is still parsed as a fallback.)
+     */
     public static String oneLinerPrompt() {
         return "You are Golu's One Liner Maker. Turn the topic or the attached files into short, "
                 + "crisp one-line facts that are easy to revise before an exam.\n"
                 + "Rules:\n"
-                + "1. Reply ONLY with one-liners, one per line, each starting with a bullet (-).\n"
-                + "2. Each line is ONE fact, short and complete (under 20 words).\n"
+                + "1. Reply with ONLY a JSON array - no markdown, no code fences, no extra text.\n"
+                + "2. Each item has exactly one field: \"line\" - ONE fact, short and complete "
+                + "(under 20 words).\n"
                 + "3. Match the user's language (Hindi, English or Hinglish).\n"
                 + "4. If files are attached, use ONLY their content.\n"
-                + "5. No introduction, no conclusion, no numbering - just the lines.";
+                + "5. No introduction, no conclusion, no numbering - just the JSON array.\n"
+                + "Demo of the exact format (3 one-liners):\n"
+                + "[{\"line\":\"The Preamble begins with 'We, the People of India'.\"},"
+                + "{\"line\":\"The Constitution of India came into force on 26 January 1950.\"},"
+                + "{\"line\":\"Dr. B. R. Ambedkar chaired the Drafting Committee.\"}]\n"
+                + "Now create the one-liners the user asked for, in exactly this format.";
+    }
+
+    /**
+     * Flashcard Maker: the model must return ONLY a JSON array of cards,
+     * in exactly the shape PracticeUtil.parseFlashcards reads.
+     */
+    public static String flashcardMakerPrompt() {
+        return "You are Golu's Flashcard Maker. Turn the topic or the attached files into "
+                + "flashcards for quick revision.\n"
+                + "Rules:\n"
+                + "1. Reply with ONLY a JSON array - no markdown, no code fences, no extra text.\n"
+                + "2. Each card has exactly two fields: \"front\" (the question, term or prompt) "
+                + "and \"back\" (the short answer or definition).\n"
+                + "3. Keep the front short (one question or term) and the back short (one or two "
+                + "sentences at most) so it can be recalled out loud.\n"
+                + "4. Match the user's language (Hindi, English or Hinglish).\n"
+                + "5. If files are attached, base every card STRICTLY on their content.\n"
+                + "6. No introduction, no conclusion - just the JSON array.\n"
+                + "Demo of the exact format (3 flashcards):\n"
+                + "[{\"front\":\"What is the capital of India?\",\"back\":\"New Delhi\"},"
+                + "{\"front\":\"Who wrote the Preamble of the Indian Constitution?\","
+                + "\"back\":\"The Constituent Assembly, led by Dr. B. R. Ambedkar\"},"
+                + "{\"front\":\"Article 370 was related to which state?\",\"back\":\"Jammu and Kashmir\"}]\n"
+                + "Now create the flashcards the user asked for, in exactly this format.";
     }
 
     public static String askerPrompt() {
@@ -70,19 +110,28 @@ public final class Skills {
                 + "5. No introduction or conclusion - start with question 1.";
     }
 
-    /** Inserts the built-ins if they are not already in the DB. */
+    /**
+     * Inserts the built-ins if they are not already in the DB, and refreshes
+     * the stored prompt of any built-in whose prompt differs from the
+     * current default (built-ins cannot be edited by the user, so a stored
+     * prompt is always an older default - refreshing it is how existing
+     * installs pick up prompt improvements, e.g. the v0.6.0 one-liner JSON
+     * format). Safe to call repeatedly.
+     */
     public static void seed(AppDb db) {
-        if (db.getSkillByName(NAME_DEFAULT) == null) {
-            db.addSkill(NAME_DEFAULT, defaultPrompt(), true);
-        }
-        if (db.getSkillByName(NAME_QUIZ_MAKER) == null) {
-            db.addSkill(NAME_QUIZ_MAKER, quizMakerPrompt(), true);
-        }
-        if (db.getSkillByName(NAME_ONELINER) == null) {
-            db.addSkill(NAME_ONELINER, oneLinerPrompt(), true);
-        }
-        if (db.getSkillByName(NAME_ASKER) == null) {
-            db.addSkill(NAME_ASKER, askerPrompt(), true);
+        seedOne(db, NAME_DEFAULT, defaultPrompt());
+        seedOne(db, NAME_QUIZ_MAKER, quizMakerPrompt());
+        seedOne(db, NAME_ONELINER, oneLinerPrompt());
+        seedOne(db, NAME_FLASHCARD, flashcardMakerPrompt());
+        seedOne(db, NAME_ASKER, askerPrompt());
+    }
+
+    private static void seedOne(AppDb db, String name, String prompt) {
+        AppDb.Skill existing = db.getSkillByName(name);
+        if (existing == null) {
+            db.addSkill(name, prompt, true);
+        } else if (!prompt.equals(existing.prompt)) {
+            db.updateSkill(existing.id, name, prompt);
         }
     }
 
@@ -90,13 +139,15 @@ public final class Skills {
     public static String libraryKindForSkill(String skillName) {
         if (NAME_QUIZ_MAKER.equals(skillName)) return AiDb.KIND_QUIZ;
         if (NAME_ONELINER.equals(skillName)) return AiDb.KIND_ONELINER;
+        if (NAME_FLASHCARD.equals(skillName)) return AiDb.KIND_FLASHCARDS;
         if (NAME_ASKER.equals(skillName)) return AiDb.KIND_QUESTIONS;
         return null; // not a creator skill: no auto-save
     }
 
     /**
      * Library kind for a chat with several skills. Quiz Maker wins (its JSON
-     * must be parsed), then One Liner Maker, then Questions Asker.
+     * must be parsed), then Flashcard Maker (its JSON too), then the first
+     * other creator skill found (One Liner Maker / Questions Asker).
      */
     public static String libraryKindForSkills(java.util.List<AppDb.Skill> skills) {
         if (skills == null) return null;
@@ -104,9 +155,23 @@ public final class Skills {
         for (AppDb.Skill s : skills) {
             String k = s == null ? null : libraryKindForSkill(s.name);
             if (AiDb.KIND_QUIZ.equals(k)) return k;
+            if (AiDb.KIND_FLASHCARDS.equals(k)) return k;
             if (found == null) found = k;
         }
         return found;
+    }
+
+    /** True when any of the chat's skills expects a JSON reply from Gemini. */
+    public static boolean needsJsonMode(java.util.List<AppDb.Skill> skills) {
+        if (skills == null) return false;
+        for (AppDb.Skill s : skills) {
+            if (s == null) continue;
+            if (NAME_QUIZ_MAKER.equals(s.name) || NAME_ONELINER.equals(s.name)
+                    || NAME_FLASHCARD.equals(s.name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

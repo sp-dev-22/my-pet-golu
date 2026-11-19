@@ -654,6 +654,7 @@ public final class Backup {
             if (appDb.listSkills().isEmpty()) {
                 Skills.seed(appDb);
                 Prefs.setSkillsSeeded(c);
+                Prefs.setSkillsSeededV60(c);
             }
         } finally {
             try {

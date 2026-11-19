@@ -80,6 +80,25 @@ public class PetView extends View {
 
     public static final String[] ACCESSORY_NAME = {"None", "Bow", "Cap", "Glasses", "Flower"};
 
+    /** clothes colours the user can pick in the Buddy panel (-1 = the outfit's own colour) */
+    public static final int[] CLOTHES_COLORS = {
+            0xFF3D7BE0,   // blue
+            0xFFE91E63,   // pink
+            0xFF2E7D32,   // green
+            0xFFEF6C00,   // orange
+            0xFF8E24AA,   // purple
+            0xFFE53935,   // red
+            0xFF00ACC1,   // teal
+            0xFFFFC107,   // yellow
+            0xFF5D4037,   // brown
+            0xFF37474F    // slate
+    };
+
+    public static final String[] CLOTHES_COLOR_NAMES = {
+            "Blue", "Pink", "Green", "Orange", "Purple",
+            "Red", "Teal", "Yellow", "Brown", "Slate"
+    };
+
     // ------------------------------------------------------------------- props
 
     private static final int P_NONE = 0, P_BALL = 1, P_KITE = 2, P_BALLOON = 3, P_TEDDY = 4,
@@ -106,6 +125,8 @@ public class PetView extends View {
 
     // style (persisted by the activity)
     private int palette = 0, gender = 0, outfit = 0, accessory = 0;
+    /** clothes colour index into CLOTHES_COLORS; -1 = the outfit's own colour */
+    private int clothesColor = -1;
 
     // activity state
     private int act = Acts.IDLE;
@@ -177,12 +198,21 @@ public class PetView extends View {
     // ------------------------------------------------------------------- style
 
     public void setLook(int palette, int gender, int outfit, int accessory) {
+        setLook(palette, gender, outfit, accessory, clothesColor);
+    }
+
+    public void setLook(int palette, int gender, int outfit, int accessory, int clothesColor) {
         this.palette = palette;
         this.gender = gender;
         this.outfit = Math.max(0, Math.min(6, outfit));
         this.accessory = accessory;
+        this.clothesColor = clothesColor;
         resolveColors();
         invalidate();
+    }
+
+    public int getClothesColor() {
+        return clothesColor;
     }
 
     public int getPalette() {
@@ -211,7 +241,13 @@ public class PetView extends View {
 
     private int[] outfitColors() {
         int[][] table = gender == 0 ? OUTFIT_COLOR_BOY : OUTFIT_COLOR_GIRL;
-        return table[Math.max(0, Math.min(table.length - 1, outfit))];
+        int[] base = table[Math.max(0, Math.min(table.length - 1, outfit))];
+        if (clothesColor >= 0 && clothesColor < CLOTHES_COLORS.length) {
+            // user-picked clothes colour replaces the outfit's main colour;
+            // the outfit's own accent (collar, stripe, buttons) stays
+            return new int[]{CLOTHES_COLORS[clothesColor], base[1]};
+        }
+        return base;
     }
 
     /** outfit id -> shape */
@@ -264,6 +300,27 @@ public class PetView extends View {
         actDur = a == Acts.IDLE ? 0 : Acts.DUR[Math.min(a, Acts.DUR.length - 1)];
         if (listener != null) listener.onActivityChanged(a);
         invalidate();
+    }
+
+    // -------------------------------------------------------------- reactions
+    // Practice answers drive Buddy's mood: a right answer makes him jump
+    // for joy (bounce, arms up, big smile), a wrong one makes him droop.
+    // Each reaction plays once and returns to idle on its own.
+
+    /** Happy celebrate animation: bounce, arms up, big smile. */
+    public void celebrate() {
+        setActivity(Acts.JUMP);
+    }
+
+    /** Sad animation: droop, downcast eyes, a tear or two. */
+    public void reactSad() {
+        setActivity(Acts.CRY);
+    }
+
+    /** One reaction for Practice: celebrate a right answer, droop for a wrong one. */
+    public void playReaction(boolean correct) {
+        if (correct) celebrate();
+        else reactSad();
     }
 
     public float progress() {
@@ -402,6 +459,9 @@ public class PetView extends View {
             case Acts.IDLE: {
                 o.eyeStyle = 0;
                 o.mouthStyle = 0;
+                // gentle breathing: a slow soft squash on top of the bob,
+                // so he feels alive even when he is just standing there
+                o.squash = (float) Math.sin(t * 1.2f) * 0.012f;
                 // look around now and then
                 float look = (float) Math.sin(t * 0.55f);
                 o.lookX = look * 0.55f;

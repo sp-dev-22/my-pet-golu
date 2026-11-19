@@ -28,9 +28,9 @@ import java.util.List;
 
 /**
  * One AI-agent chat. Text + file attachments go to Gemini; replies from
- * creator skills (Quiz Maker, One Liner Maker, Questions Asker) are
- * auto-saved to the Library. No voice here - AI voice is always OFF in
- * agent chats.
+ * creator skills (Quiz Maker, Flashcard Maker, One Liner Maker, Questions
+ * Asker) are auto-saved to the Library. No voice here - AI voice is always
+ * OFF in agent chats.
  */
 public class ChatActivity extends Activity {
 
@@ -51,6 +51,12 @@ public class ChatActivity extends Activity {
     private EditText input;
     private TextView sendBtn;
     private TextView attachChip;
+    private LinearLayout selectionBar;
+    private TextView deleteSelectedBtn;
+
+    // message selection (delete several pairs at once)
+    private boolean selectionMode = false;
+    private final java.util.Set<Long> selectedPairs = new java.util.HashSet<>();
 
     private final List<UserDb.UserFile> attachedFiles = new ArrayList<>();
     private final List<AiDb.Item> attachedItems = new ArrayList<>();
@@ -108,8 +114,12 @@ public class ChatActivity extends Activity {
         listView.setDivider(null);
         listView.setDividerHeight(0);
         listView.setPadding(Ui.dp(this, 10), Ui.dp(this, 6), Ui.dp(this, 10), Ui.dp(this, 6));
+        TextView listEmpty = Ui.empty(this,
+                "No messages yet\nAsk Golu anything to start this chat");
+        listView.setEmptyView(listEmpty);
         root.addView(listView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(listEmpty, Ui.matchWrap());
 
         // attachment chip (tap to clear)
         attachChip = new TextView(this);
@@ -183,6 +193,35 @@ public class ChatActivity extends Activity {
         inputRow.addView(sendBtn, sendLp);
 
         root.addView(inputRow, Ui.matchWrap());
+
+        // selection bar (delete several message pairs at once)
+        selectionBar = new LinearLayout(this);
+        selectionBar.setOrientation(LinearLayout.HORIZONTAL);
+        selectionBar.setBackgroundColor(Ui.PANEL);
+        selectionBar.setGravity(Gravity.CENTER);
+        selectionBar.setPadding(Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8));
+        selectionBar.setVisibility(View.GONE);
+        deleteSelectedBtn = Ui.button(this, "Delete (0)", Ui.RED);
+        deleteSelectedBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                deleteSelected();
+            }
+        });
+        LinearLayout.LayoutParams selLp = Ui.wrapWrap();
+        selLp.leftMargin = Ui.dp(this, 6);
+        selLp.rightMargin = Ui.dp(this, 6);
+        selectionBar.addView(deleteSelectedBtn, selLp);
+        TextView cancelSel = Ui.button(this, "Cancel", Ui.MUTED);
+        cancelSel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                exitSelectionMode();
+            }
+        });
+        selectionBar.addView(cancelSel, selLp);
+        root.addView(selectionBar, Ui.matchWrap());
+
         setContentView(root);
 
         adapter = new MsgAdapter();
@@ -192,6 +231,14 @@ public class ChatActivity extends Activity {
             public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
                 onMessageLongPress(msgs.get(position));
                 return true;
+            }
+        });
+        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                if (selectionMode && msgs != null && position >= 0 && position < msgs.size()) {
+                    togglePair(AppDb.pairKey(msgs, position));
+                }
             }
         });
 
@@ -248,13 +295,6 @@ public class ChatActivity extends Activity {
             return skills.isEmpty() ? Skills.NAME_DEFAULT : skills.get(0).name;
         }
         return skills.get(0).name + " +" + (skills.size() - 1);
-    }
-
-    private boolean hasQuizMakerSkill() {
-        for (AppDb.Skill s : currentSkills()) {
-            if (Skills.NAME_QUIZ_MAKER.equals(s.name)) return true;
-        }
-        return false;
     }
 
     private void refreshHeader() {
@@ -323,7 +363,8 @@ public class ChatActivity extends Activity {
     private void onMessageLongPress(final AppDb.Msg msg) {
         new AlertDialog.Builder(this)
                 .setTitle("Message")
-                .setItems(new String[]{"Copy", "Save to Library", "Delete pair"},
+                .setItems(new String[]{"Copy", "Save to Library", "Delete pair",
+                                "Select pairs", "Clear whole chat"},
                         new DialogInterface.OnClickListener() {
                             @Override
                             public void onClick(DialogInterface d, int which) {
@@ -338,7 +379,7 @@ public class ChatActivity extends Activity {
                                     if (kind == null) kind = AiDb.KIND_OTHER;
                                     aiDb.addItem(firstLine60(msg.text), kind, msg.text, chat.title);
                                     Ui.toast(ChatActivity.this, "Saved to Library");
-                                } else {
+                                } else if (which == 2) {
                                     Ui.confirm(ChatActivity.this, "Delete pair?",
                                             "This deletes this message and its reply.",
                                             new Ui.ConfirmCallback() {
@@ -348,10 +389,77 @@ public class ChatActivity extends Activity {
                                                     refreshMessages();
                                                 }
                                             });
+                                } else if (which == 3) {
+                                    enterSelectionMode(AppDb.pairKey(msgs, msgs.indexOf(msg)));
+                                } else {
+                                    clearWholeChat();
                                 }
                             }
                         })
                 .show();
+    }
+
+    // ------------------------------------------------- message selection
+
+    /** Starts multi-select delete with the long-pressed pair pre-selected. */
+    private void enterSelectionMode(long pairKey) {
+        selectionMode = true;
+        selectedPairs.clear();
+        if (pairKey >= 0) selectedPairs.add(pairKey);
+        selectionBar.setVisibility(View.VISIBLE);
+        updateSelectionBar();
+    }
+
+    private void exitSelectionMode() {
+        selectionMode = false;
+        selectedPairs.clear();
+        selectionBar.setVisibility(View.GONE);
+        adapter.notifyDataSetChanged();
+    }
+
+    private void togglePair(long pairKey) {
+        if (pairKey < 0) return;
+        if (selectedPairs.contains(pairKey)) selectedPairs.remove(pairKey);
+        else selectedPairs.add(pairKey);
+        updateSelectionBar();
+    }
+
+    private void updateSelectionBar() {
+        deleteSelectedBtn.setText("Delete (" + selectedPairs.size() + ")");
+        adapter.notifyDataSetChanged();
+    }
+
+    /** Deletes the selected pairs (each pair = one user message + its AI reply). */
+    private void deleteSelected() {
+        if (selectedPairs.isEmpty()) {
+            exitSelectionMode();
+            return;
+        }
+        final java.util.Set<Long> keys = new java.util.HashSet<>(selectedPairs);
+        Ui.confirm(this, "Delete selected?",
+                "Delete " + keys.size() + " selected pair" + (keys.size() == 1 ? "" : "s") + "?",
+                new Ui.ConfirmCallback() {
+                    @Override
+                    public void onYes() {
+                        db.deletePairs(chatId, keys);
+                        exitSelectionMode();
+                        refreshMessages();
+                    }
+                });
+    }
+
+    /** Deletes every message in this chat (the chat itself stays). */
+    private void clearWholeChat() {
+        Ui.confirm(this, "Clear whole chat?",
+                "All messages in this chat will be deleted.",
+                new Ui.ConfirmCallback() {
+                    @Override
+                    public void onYes() {
+                        db.deleteAllMessages(chatId);
+                        exitSelectionMode();
+                        refreshMessages();
+                    }
+                });
     }
 
     // -------------------------------------------------------------- attachments
@@ -423,7 +531,7 @@ public class ChatActivity extends Activity {
 
         final List<AppDb.Skill> skills = currentSkills();
         final String systemPrompt = Skills.effectivePrompt(this, db, skills);
-        final boolean jsonMode = hasQuizMakerSkill();
+        final boolean jsonMode = Skills.needsJsonMode(skills);
         final String model = chat.model == null ? Prefs.getAgentModel(this) : chat.model;
         final String apiKey = Prefs.getApiKey(this);
         final String sendText = text;
@@ -551,6 +659,8 @@ public class ChatActivity extends Activity {
         public View getView(int position, View convertView, ViewGroup parent) {
             AppDb.Msg msg = msgs.get(position);
             boolean mine = AppDb.ROLE_USER.equals(msg.role);
+            boolean selected = selectionMode
+                    && selectedPairs.contains(AppDb.pairKey(msgs, position));
 
             LinearLayout row = new LinearLayout(ChatActivity.this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -558,13 +668,14 @@ public class ChatActivity extends Activity {
             row.setPadding(0, Ui.dp(ChatActivity.this, 3), 0, Ui.dp(ChatActivity.this, 3));
 
             TextView bubble = new TextView(ChatActivity.this);
-            bubble.setText(msg.text);
+            bubble.setText((selected ? "\u2611 " : selectionMode ? "\u2610 " : "") + msg.text);
             bubble.setTextSize(15f);
             bubble.setTextColor(Ui.INK);
             bubble.setPadding(Ui.dp(ChatActivity.this, 12), Ui.dp(ChatActivity.this, 9),
                     Ui.dp(ChatActivity.this, 12), Ui.dp(ChatActivity.this, 9));
             bubble.setBackground(Ui.pill(ChatActivity.this,
-                    mine ? Ui.BUBBLE_USER : Ui.BUBBLE_AI, Ui.LINE, 14));
+                    selected ? Ui.BUBBLE_SELECTED : (mine ? Ui.BUBBLE_USER : Ui.BUBBLE_AI),
+                    Ui.LINE, 14));
 
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

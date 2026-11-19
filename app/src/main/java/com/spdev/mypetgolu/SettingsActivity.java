@@ -406,7 +406,7 @@ public class SettingsActivity extends Activity {
 
         // ----------------------------------------------------------------- about
         body.addView(Ui.section(this, "About"));
-        body.addView(note("Golu Study Buddy 0.5.0 - your study buddy. Chats, library, files and memory "
+        body.addView(note("Golu Study Buddy 0.6.0 - your study buddy. Chats, library, files and memory "
                 + "stay on your device; only your messages and attached files go to Gemini."));
     }
 

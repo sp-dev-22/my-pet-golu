@@ -30,17 +30,21 @@ import java.util.Locale;
  * Offline practice mode (was Asking/Quiz). Golu practises with the user
  * using items already saved in the Library (made in agent chats) -
  * nothing is created with AI here, and no API calls happen during
- * practice. Four kinds, each with its own flow:
+ * practice. Four kinds, all played quiz-style (sequential items, Golu
+ * speaks each one, the user answers by voice or tap, immediate spoken
+ * right/wrong feedback, running score, finish summary):
  * - quiz: Golu reads the question + options aloud, then listens for the
  *   answer by voice or tap until the countdown runs out.
- * - flashcards: Golu reads the front; the user recalls, then reveals the
- *   back (tap, voice or timeout) and marks Knew/Missed.
- * - one-liners: Golu reads each line; the user marks Knew/Missed.
- * - questions: Golu asks the question; the user answers aloud (or taps
- *   to reveal), then sees the answer and marks Knew/Missed.
+ * - flashcards: Golu reads the front; the user says the back out loud
+ *   (Golu judges the answer) or taps "Show answer" and marks Knew/Missed.
+ * - one-liners: Golu reads each line; the user says it back (Golu judges
+ *   the recall) or marks Knew/Missed.
+ * - questions: Golu asks the question; the user answers aloud (Golu judges
+ *   it) or taps to reveal and marks Knew/Missed.
  * TTS and STT are always on here. The mic has two modes: AUTO (listens
  * on its own when a question is asked) and TAP (the user taps the mic
- * button to speak the answer).
+ * button to speak the answer). Buddy animates with every answer: he jumps
+ * for joy when the user is right and droops when wrong.
  */
 public class AskingActivity extends Activity {
 
@@ -68,6 +72,12 @@ public class AskingActivity extends Activity {
     private TextView micIndicator;
     private TextView micModeChip;
     private TextView micButton;
+    private LinearLayout selectionBar;
+    private TextView deleteSelectedBtn;
+
+    // message selection (delete several pairs at once)
+    private boolean selectionMode = false;
+    private final java.util.Set<Long> selectedPairs = new java.util.HashSet<>();
 
     // practice state
     private PracticeUtil.PracticeSet set;
@@ -119,7 +129,7 @@ public class AskingActivity extends Activity {
         setContentView(buildUi());
 
         pet.setLook(Prefs.getPalette(this), Prefs.getGender(this),
-                Prefs.getOutfit(this), Prefs.getAccessory(this));
+                Prefs.getOutfit(this), Prefs.getAccessory(this), Prefs.getClothesColor(this));
 
         voice = new GoluVoice(this);
         voice.initTts(Prefs.getTtsLocale(this), null);
@@ -213,6 +223,9 @@ public class AskingActivity extends Activity {
         list.setDivider(null);
         list.setDividerHeight(0);
         list.setPadding(Ui.dp(this, 8), Ui.dp(this, 4), Ui.dp(this, 8), Ui.dp(this, 4));
+        TextView listEmpty = Ui.empty(this,
+                "No practice messages yet\nStart a practice session to see your answers here");
+        list.setEmptyView(listEmpty);
         list.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
             @Override
             public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
@@ -221,8 +234,17 @@ public class AskingActivity extends Activity {
                 return true;
             }
         });
+        list.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                if (selectionMode && position >= 0 && position < messages.size()) {
+                    togglePair(AppDb.pairKey(messages, position));
+                }
+            }
+        });
         root.addView(list, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(listEmpty, Ui.matchWrap());
 
         // card view: the flashcard front / one-liner / open question
         cardView = new TextView(this);
@@ -427,6 +449,31 @@ public class AskingActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         root.addView(controls, Ui.matchWrap());
+
+        // selection bar (delete several message pairs at once)
+        selectionBar = new LinearLayout(this);
+        selectionBar.setOrientation(LinearLayout.HORIZONTAL);
+        selectionBar.setBackgroundColor(Ui.PANEL);
+        selectionBar.setGravity(Gravity.CENTER);
+        selectionBar.setPadding(Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8));
+        selectionBar.setVisibility(View.GONE);
+        deleteSelectedBtn = Ui.button(this, "Delete (0)", Ui.RED);
+        deleteSelectedBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                deleteSelected();
+            }
+        });
+        selectionBar.addView(deleteSelectedBtn, buttonLp());
+        TextView cancelSel = Ui.button(this, "Cancel", Ui.MUTED);
+        cancelSel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                exitSelectionMode();
+            }
+        });
+        selectionBar.addView(cancelSel, buttonLp());
+        root.addView(selectionBar, Ui.matchWrap());
         return root;
     }
 
@@ -461,7 +508,7 @@ public class AskingActivity extends Activity {
     }
 
     private void showMessageMenu(final AppDb.Msg m) {
-        final String[] items = {"Copy", "Delete pair"};
+        final String[] items = {"Copy", "Delete pair", "Select pairs", "Clear whole chat"};
         new AlertDialog.Builder(this)
                 .setTitle("Message")
                 .setItems(items, new DialogInterface.OnClickListener() {
@@ -474,13 +521,80 @@ public class AskingActivity extends Activity {
                                 cm.setPrimaryClip(ClipData.newPlainText("Golu message", m.text));
                                 Ui.toast(AskingActivity.this, "Copied");
                             }
-                        } else {
+                        } else if (which == 1) {
                             db.deleteMessagePair(chat.id, m.id);
                             refreshTranscript();
+                        } else if (which == 2) {
+                            enterSelectionMode(AppDb.pairKey(messages, messages.indexOf(m)));
+                        } else {
+                            clearWholeChat();
                         }
                     }
                 })
                 .show();
+    }
+
+    // ------------------------------------------------- message selection
+
+    /** Starts multi-select delete with the long-pressed pair pre-selected. */
+    private void enterSelectionMode(long pairKey) {
+        selectionMode = true;
+        selectedPairs.clear();
+        if (pairKey >= 0) selectedPairs.add(pairKey);
+        selectionBar.setVisibility(View.VISIBLE);
+        updateSelectionBar();
+    }
+
+    private void exitSelectionMode() {
+        selectionMode = false;
+        selectedPairs.clear();
+        selectionBar.setVisibility(View.GONE);
+        adapter.notifyDataSetChanged();
+    }
+
+    private void togglePair(long pairKey) {
+        if (pairKey < 0) return;
+        if (selectedPairs.contains(pairKey)) selectedPairs.remove(pairKey);
+        else selectedPairs.add(pairKey);
+        updateSelectionBar();
+    }
+
+    private void updateSelectionBar() {
+        deleteSelectedBtn.setText("Delete (" + selectedPairs.size() + ")");
+        adapter.notifyDataSetChanged();
+    }
+
+    /** Deletes the selected pairs (each pair = one user message + its AI reply). */
+    private void deleteSelected() {
+        if (selectedPairs.isEmpty()) {
+            exitSelectionMode();
+            return;
+        }
+        final java.util.Set<Long> keys = new java.util.HashSet<>(selectedPairs);
+        Ui.confirm(this, "Delete selected?",
+                "Delete " + keys.size() + " selected pair" + (keys.size() == 1 ? "" : "s") + "?",
+                new Ui.ConfirmCallback() {
+                    @Override
+                    public void onYes() {
+                        db.deletePairs(chat.id, keys);
+                        exitSelectionMode();
+                        refreshTranscript();
+                    }
+                });
+    }
+
+    /** Deletes every message in this chat (the practice session is untouched). */
+    private void clearWholeChat() {
+        Ui.confirm(this, "Clear whole chat?",
+                "All practice messages will be deleted. The practice session itself stays.",
+                new Ui.ConfirmCallback() {
+                    @Override
+                    public void onYes() {
+                        db.deleteAllMessages(chat.id);
+                        exitSelectionMode();
+                        refreshTranscript();
+                    }
+                });
     }
 
     private class MsgAdapter extends BaseAdapter {
@@ -503,6 +617,8 @@ public class AskingActivity extends Activity {
         public View getView(int position, View convertView, ViewGroup parent) {
             AppDb.Msg m = messages.get(position);
             boolean mine = AppDb.ROLE_USER.equals(m.role);
+            boolean selected = selectionMode
+                    && selectedPairs.contains(AppDb.pairKey(messages, position));
 
             LinearLayout row = new LinearLayout(AskingActivity.this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -510,7 +626,7 @@ public class AskingActivity extends Activity {
                     0, Ui.dp(AskingActivity.this, 3));
 
             TextView bubble = new TextView(AskingActivity.this);
-            bubble.setText(m.text);
+            bubble.setText((selected ? "\u2611 " : selectionMode ? "\u2610 " : "") + m.text);
             bubble.setTextSize(14f);
             bubble.setTextColor(Ui.INK);
             bubble.setPadding(Ui.dp(AskingActivity.this, 12),
@@ -518,7 +634,8 @@ public class AskingActivity extends Activity {
                     Ui.dp(AskingActivity.this, 12),
                     Ui.dp(AskingActivity.this, 9));
             bubble.setBackground(Ui.pill(AskingActivity.this,
-                    mine ? Ui.BUBBLE_USER : Ui.BUBBLE_AI, Ui.LINE, 14));
+                    selected ? Ui.BUBBLE_SELECTED : (mine ? Ui.BUBBLE_USER : Ui.BUBBLE_AI),
+                    Ui.LINE, 14));
 
             View spacer = new View(AskingActivity.this);
             LinearLayout.LayoutParams spacerLp = new LinearLayout.LayoutParams(
@@ -549,9 +666,9 @@ public class AskingActivity extends Activity {
         if (items.isEmpty() && lastUnfinished == null) {
             new AlertDialog.Builder(this)
                     .setTitle("Nothing to practise yet")
-                    .setMessage("Make something first in Chats (Quiz Maker, One Liner Maker "
-                            + "or Questions Asker) - it will be saved to the Library and you "
-                            + "can practise it here.")
+                    .setMessage("Make something first in Chats (Quiz Maker, Flashcard Maker, "
+                            + "One Liner Maker or Questions Asker) - it will be saved to the "
+                            + "Library and you can practise it here.")
                     .setPositiveButton("Open Chats", new DialogInterface.OnClickListener() {
                         @Override
                         public void onClick(DialogInterface d, int w) {
@@ -752,8 +869,13 @@ public class AskingActivity extends Activity {
         if (destroyed || answered || finished || currentCard() == null) return;
         if (isQuiz()) {
             startWaiting();
-        } else if (isOneLiner() || currentCard().reveal.isEmpty()) {
-            // one-liners and items with no answer: nothing to wait for,
+        } else if (isOneLiner()) {
+            // one-liners: show the mark row AND wait for a spoken recall,
+            // so the user can either say the line back or just mark it
+            showMarkRow();
+            startRecallWait();
+        } else if (currentCard().reveal.isEmpty()) {
+            // items with no answer: nothing to wait for,
             // the user just marks how well they knew it
             showMarkRow();
         } else {
@@ -788,7 +910,7 @@ public class AskingActivity extends Activity {
         }
     }
 
-    /** Waiting phase for flashcards / open questions (reveal, not answer). */
+    /** Waiting phase for flashcards / open questions (answer aloud, or reveal). */
     private void startCardWait() {
         if (destroyed || answered || finished || currentCard() == null) {
             return;
@@ -800,13 +922,65 @@ public class AskingActivity extends Activity {
         handler.removeCallbacks(tickRunnable);
         handler.postDelayed(tickRunnable, 1000);
         if (Prefs.isPracticeMicTap(this)) {
-            micIndicator.setText("Recall it, then tap Speak or Show answer");
+            micIndicator.setText("Tap Speak to answer, or Show answer");
             micButton.setText("Speak");
             micButton.setVisibility(View.VISIBLE);
         } else {
-            micIndicator.setText("Recall it out loud, or tap Show answer");
+            micIndicator.setText("Say the answer out loud, or tap Show answer");
             startListeningForCard();
         }
+    }
+
+    /**
+     * Waiting phase for one-liners: the user says the line back out loud
+     * (Golu judges the recall) or marks Knew/Missed. The mark row is
+     * already showing - the countdown only ends the listening.
+     */
+    private void startRecallWait() {
+        if (destroyed || answered || finished || currentCard() == null) {
+            return;
+        }
+        waiting = true;
+        secondsLeft = Prefs.getQuizTimeSec(this);
+        updateStatus();
+        handler.removeCallbacks(tickRunnable);
+        handler.postDelayed(tickRunnable, 1000);
+        if (Prefs.isPracticeMicTap(this)) {
+            micIndicator.setText("Say the line back, or mark how you did");
+            micButton.setText("Speak");
+            micButton.setVisibility(View.VISIBLE);
+        } else {
+            micIndicator.setText("Say the line back out loud, or mark it");
+            startListeningForRecall();
+        }
+    }
+
+    /** One-liners: the user repeats the line; Golu judges the recall. */
+    private void startListeningForRecall() {
+        startListeningPass(new GoluVoice.SttListener() {
+            @Override
+            public void onResult(String text) {
+                micButton.setText("Speak");
+                if (!waiting || answered || destroyed) return;
+                PracticeUtil.Card card = currentCard();
+                if (card == null) return;
+                onJudgedAnswer(PracticeUtil.judgeAnswer(text, card.prompt), text);
+            }
+
+            @Override
+            public void onError(String message) {
+                micButton.setText("Speak");
+                if (!waiting || answered || destroyed) return;
+                if ("NOMATCH".equals(message)) {
+                    if (Prefs.isPracticeMicTap(AskingActivity.this)) {
+                        micIndicator.setText("Didn't catch that - tap Speak again");
+                    } else {
+                        startListeningForRecall();
+                    }
+                }
+                // "TIMEOUT" needs nothing: the countdown ends the recall wait
+            }
+        });
     }
 
     private void stopWaiting() {
@@ -816,10 +990,15 @@ public class AskingActivity extends Activity {
         if (voice != null) voice.cancelListening();
     }
 
-    /** The countdown ran out: quiz -> timeout verdict; cards -> auto-reveal. */
+    /** The countdown ran out: quiz -> timeout verdict; cards -> auto-reveal; one-liners -> stop listening. */
     private void onTickTimeout() {
         if (isQuiz()) {
             onTimeout();
+        } else if (isOneLiner()) {
+            // recall time is up: stop listening, the mark row stays
+            stopWaiting();
+            micIndicator.setText("Mark how you did");
+            updateStatus();
         } else if (!revealed) {
             revealItem();
         }
@@ -853,6 +1032,8 @@ public class AskingActivity extends Activity {
         if (!waiting || answered || destroyed) return;
         if (isQuiz()) {
             startListeningForAnswer();
+        } else if (isOneLiner()) {
+            startListeningForRecall();
         } else {
             startListeningForCard();
         }
@@ -895,16 +1076,22 @@ public class AskingActivity extends Activity {
         });
     }
 
-    /** Flashcards / open questions: any spoken words count as an answer. */
+    /** Flashcards / open questions: the spoken answer is judged against the back. */
     private void startListeningForCard() {
         startListeningPass(new GoluVoice.SttListener() {
             @Override
             public void onResult(String text) {
                 micButton.setText("Speak");
                 if (!waiting || answered || destroyed || revealed) return;
-                db.addMessage(chat.id, AppDb.ROLE_USER, "My answer: " + text, "text");
-                refreshTranscript();
-                revealItem();
+                PracticeUtil.Card card = currentCard();
+                if (card == null || card.reveal.isEmpty()) {
+                    // no answer to judge against: fall back to reveal + self-mark
+                    db.addMessage(chat.id, AppDb.ROLE_USER, "My answer: " + text, "text");
+                    refreshTranscript();
+                    revealItem();
+                    return;
+                }
+                onJudgedAnswer(PracticeUtil.judgeAnswer(text, card.reveal), text);
             }
 
             @Override
@@ -1020,6 +1207,7 @@ public class AskingActivity extends Activity {
         db.addMessage(chat.id, AppDb.ROLE_AI, verdict.trim(), "text");
         refreshTranscript();
         speak(verdict, "verdict");
+        pet.playReaction(correct);
 
         micIndicator.setText(byVoice ? "Heard: " + letter : "You picked " + letter);
         updateStatus();
@@ -1043,10 +1231,65 @@ public class AskingActivity extends Activity {
         db.addMessage(chat.id, AppDb.ROLE_AI, verdict.trim(), "text");
         refreshTranscript();
         speak(verdict, "verdict");
+        pet.playReaction(false);
 
         micIndicator.setText("Time's up!");
         updateStatus();
         markRow.setVisibility(View.VISIBLE);
+    }
+
+    /**
+     * A spoken answer was judged (flashcards, open questions, one-liners):
+     * immediate spoken verdict, score, Buddy's reaction and the Next button -
+     * just like the quiz flow. For cards the answer is shown on the card too.
+     */
+    private void onJudgedAnswer(boolean correct, String spoken) {
+        PracticeUtil.Card card = currentCard();
+        if (answered || card == null) return;
+        answered = true;
+        stopWaiting();
+        revealRow.setVisibility(View.GONE);
+        markRow.setVisibility(View.GONE);
+        if (correct) score++;
+
+        db.addMessage(chat.id, AppDb.ROLE_USER, "My answer: " + spoken, "text");
+
+        boolean hindi = "hi".equals(Prefs.getTtsLang(this));
+        String verdict;
+        if (isOneLiner()) {
+            if (correct) {
+                verdict = hindi ? "Sahi! Tumne line yaad rakhi."
+                        : "Correct! You recalled it well.";
+            } else {
+                verdict = hindi ? "Poori tarah sahi nahi. Line thi: " + card.prompt
+                        : "Not quite. The line was: " + card.prompt;
+            }
+        } else {
+            if (correct) {
+                verdict = (hindi ? "Sahi jawab! " : "Correct! ") + card.explanation;
+            } else {
+                verdict = hindi
+                        ? "Galat jawab. Sahi jawab tha: " + card.reveal + ". " + card.explanation
+                        : "Wrong answer. The answer was: " + card.reveal + ". " + card.explanation;
+            }
+        }
+        db.addMessage(chat.id, AppDb.ROLE_AI, verdict.trim(), "text");
+        refreshTranscript();
+        speak(verdict, "verdict");
+        pet.playReaction(correct);
+
+        if (!isOneLiner() && !card.reveal.isEmpty()) {
+            revealed = true;
+            StringBuilder shown = new StringBuilder(card.prompt);
+            shown.append("\n\n").append(card.reveal);
+            if (!card.explanation.isEmpty()) shown.append("\n\n").append(card.explanation);
+            cardView.setText(shown.toString().trim());
+        }
+
+        micIndicator.setText(correct ? "Correct!" : "Wrong answer");
+        updateStatus();
+        nextButton.setVisibility(View.VISIBLE);
+        saveProgress();
     }
 
     /** Reveals the back of a flashcard / the answer to an open question. */
@@ -1096,6 +1339,14 @@ public class AskingActivity extends Activity {
         updateStatus();
         nextButton.setVisibility(View.VISIBLE);
         saveProgress();
+        // quiz-like feedback: Golu reacts out loud and with an animation
+        boolean hindi = "hi".equals(Prefs.getTtsLang(this));
+        speak(knewIt
+                ? (hindi ? "Shabaash! Tumhe yaad tha." : "Great, you knew it!")
+                : (hindi ? "Koi baat nahi, agali baar yaad rahega."
+                        : "No worries - you'll get it next time."),
+                "mark");
+        pet.playReaction(knewIt);
     }
 
     private void onNext() {

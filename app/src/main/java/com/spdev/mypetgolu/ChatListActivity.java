@@ -40,14 +40,16 @@ public class ChatListActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         db = new AppDb(this);
-        // seed the built-in skills once, off the UI thread
-        if (!Prefs.isSkillsSeeded(this)) {
+        // seed the built-in skills once, off the UI thread (the v0.6.0 flag
+        // re-runs seeding once on existing installs for the new skill)
+        if (!Prefs.isSkillsSeeded(this) || !Prefs.isSkillsSeededV60(this)) {
             final AppDb seedDb = db;
             new Thread(new Runnable() {
                 @Override
                 public void run() {
                     Skills.seed(seedDb);
                     Prefs.setSkillsSeeded(ChatListActivity.this);
+                    Prefs.setSkillsSeededV60(ChatListActivity.this);
                 }
             }).start();
         }

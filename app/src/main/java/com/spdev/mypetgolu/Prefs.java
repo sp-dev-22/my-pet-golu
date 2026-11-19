@@ -20,7 +20,7 @@ public final class Prefs {
 
     private static final String NAME = "golu_study";
 
-    /** Current preset models (v0.5.0). Old presets were removed (see OLD_PRESETS). */
+    /** Current preset models (v0.6.0). Old presets were removed (see OLD_PRESETS). */
     public static final String[] DEFAULT_MODELS = {
             "gemini-3.5-flash-lite",
             "gemini-3.6-flash",
@@ -36,6 +36,7 @@ public final class Prefs {
 
     private static final String K_MODELS_MIGRATED = "models_migrated_v31";
     private static final String K_SKILLS_SEEDED = "skills_seeded";
+    private static final String K_SKILLS_SEEDED_V60 = "skills_seeded_v60";
     private static final String K_PRACTICE_MIC_TAP = "practice_mic_tap";
 
     private static final String K_API_KEY = "api_key";
@@ -58,6 +59,7 @@ public final class Prefs {
     private static final String K_LOOK_GENDER = "gender";
     private static final String K_LOOK_OUTFIT = "outfit";
     private static final String K_LOOK_ACCESSORY = "accessory";
+    private static final String K_LOOK_CLOTHES_COLOR = "clothes_color";
 
     private static SharedPreferences sp(Context c) {
         return c.getSharedPreferences(NAME, Context.MODE_PRIVATE);
@@ -267,6 +269,20 @@ public final class Prefs {
     }
 
     /**
+     * v0.6.0 re-seed (adds the Flashcard Maker skill and refreshes the
+     * built-in prompts, e.g. the one-liner JSON format). Existing installs
+     * already have skills_seeded set, so this separate flag makes the
+     * one-time v0.6.0 seed run exactly once.
+     */
+    public static boolean isSkillsSeededV60(Context c) {
+        return sp(c).getBoolean(K_SKILLS_SEEDED_V60, false);
+    }
+
+    public static void setSkillsSeededV60(Context c) {
+        sp(c).edit().putBoolean(K_SKILLS_SEEDED_V60, true).apply();
+    }
+
+    /**
      * Practice mic mode: false = AUTO (listens on its own when a question is
      * asked), true = TAP (the user taps the mic button to speak the answer).
      */
@@ -342,12 +358,23 @@ public final class Prefs {
         return sp(c).getInt(K_LOOK_ACCESSORY, 0);
     }
 
+    /** Clothes colour index into PetView.CLOTHES_COLORS; -1 = the outfit's own colour. */
+    public static int getClothesColor(Context c) {
+        return sp(c).getInt(K_LOOK_CLOTHES_COLOR, -1);
+    }
+
     public static void saveLook(Context c, int palette, int gender, int outfit, int accessory) {
+        saveLook(c, palette, gender, outfit, accessory, getClothesColor(c));
+    }
+
+    public static void saveLook(Context c, int palette, int gender, int outfit, int accessory,
+                                int clothesColor) {
         sp(c).edit()
                 .putInt(K_LOOK_PALETTE, palette)
                 .putInt(K_LOOK_GENDER, gender)
                 .putInt(K_LOOK_OUTFIT, outfit)
                 .putInt(K_LOOK_ACCESSORY, accessory)
+                .putInt(K_LOOK_CLOTHES_COLOR, clothesColor)
                 .apply();
     }
 
@@ -386,9 +413,11 @@ public final class Prefs {
             o.put("gender", p.getInt(K_LOOK_GENDER, 0));
             o.put("outfit", p.getInt(K_LOOK_OUTFIT, 0));
             o.put("accessory", p.getInt(K_LOOK_ACCESSORY, 0));
+            o.put("clothes_color", p.getInt(K_LOOK_CLOTHES_COLOR, -1));
             o.put("practice_mic_tap", p.getBoolean(K_PRACTICE_MIC_TAP, false));
             o.put("models_migrated_v31", p.getBoolean(K_MODELS_MIGRATED, false));
             o.put("skills_seeded", p.getBoolean(K_SKILLS_SEEDED, false));
+            o.put("skills_seeded_v60", p.getBoolean(K_SKILLS_SEEDED_V60, false));
         } catch (Exception ignored) {
             // org.json only throws for invalid values; these are all plain types
         }
@@ -422,9 +451,11 @@ public final class Prefs {
         if (o.has("gender")) e.putInt(K_LOOK_GENDER, o.optInt("gender", 0));
         if (o.has("outfit")) e.putInt(K_LOOK_OUTFIT, o.optInt("outfit", 0));
         if (o.has("accessory")) e.putInt(K_LOOK_ACCESSORY, o.optInt("accessory", 0));
+        if (o.has("clothes_color")) e.putInt(K_LOOK_CLOTHES_COLOR, o.optInt("clothes_color", -1));
         if (o.has("practice_mic_tap")) e.putBoolean(K_PRACTICE_MIC_TAP, o.optBoolean("practice_mic_tap", false));
         if (o.has("models_migrated_v31")) e.putBoolean(K_MODELS_MIGRATED, o.optBoolean("models_migrated_v31", false));
         if (o.has("skills_seeded")) e.putBoolean(K_SKILLS_SEEDED, o.optBoolean("skills_seeded", false));
+        if (o.has("skills_seeded_v60")) e.putBoolean(K_SKILLS_SEEDED_V60, o.optBoolean("skills_seeded_v60", false));
         // NOTE: "api_key" is never read here, on purpose.
         e.apply();
     }

@@ -197,10 +197,44 @@ public final class PracticeUtil {
 
     // -------------------------------------------------------------- one-liners
 
-    /** One-liners: one fact per line (bullets / numbering stripped). */
+    /**
+     * One-liners, in either shape:
+     * - JSON array of {"line":"..."} / {"text":"..."} / {"fact":"..."} objects,
+     *   or a plain JSON array of strings (the v0.6.0 One Liner Maker format)
+     * - one fact per line, bullets / numbering stripped (the old format,
+     *   kept so Library items made before v0.6.0 still practise)
+     */
     public static List<Card> parseOneLiners(String raw) {
         List<Card> out = new ArrayList<>();
         if (raw == null) return out;
+
+        // 1. JSON array
+        String json = QuizUtil.extractArray(raw);
+        if (json != null) {
+            try {
+                JSONArray arr = new JSONArray(json);
+                for (int i = 0; i < arr.length(); i++) {
+                    String line = "";
+                    Object entry = arr.get(i);
+                    if (entry instanceof JSONObject) {
+                        line = firstNonEmpty((JSONObject) entry,
+                                "line", "text", "fact", "oneliner");
+                    } else if (entry instanceof String) {
+                        line = ((String) entry).trim();
+                    }
+                    if (!line.isEmpty()) {
+                        Card c = new Card();
+                        c.prompt = line;
+                        out.add(c);
+                    }
+                }
+                if (!out.isEmpty()) return out;
+            } catch (Exception ignored) {
+                // not a JSON array of lines: fall through to line parsing
+            }
+        }
+
+        // 2. one fact per line (bullets / numbering stripped)
         for (String rawLine : raw.split("\n")) {
             String line = stripBullet(rawLine);
             line = line.replaceAll("^\\d+[.)]\\s+", "");
@@ -210,6 +244,86 @@ public final class PracticeUtil {
             out.add(c);
         }
         return out;
+    }
+
+    // ------------------------------------------------------------ judging
+    // Practice judges a spoken answer for flashcards, questions and
+    // one-liners (quiz-like play): the user says the answer out loud and
+    // Golu marks it right or wrong immediately, instead of only self-marking.
+
+    /** Words too common to count when matching a spoken answer. */
+    private static final java.util.Set<String> STOPWORDS = new java.util.HashSet<>(
+            java.util.Arrays.asList(
+                    // English
+                    "the", "a", "an", "is", "are", "was", "were", "be", "been",
+                    "of", "to", "in", "on", "for", "and", "or", "with", "by",
+                    "at", "from", "as", "it", "its", "this", "that", "these",
+                    "those", "there", "here", "who", "what", "which", "when",
+                    "where", "how", "why", "called", "known",
+                    // Hindi (Devanagari)
+                    "\u0915\u093e", "\u0915\u0940", "\u0915\u0947",
+                    "\u0939\u0948", "\u0939\u0948\u0902", "\u092e\u0947\u0902",
+                    "\u0938\u0947", "\u0915\u094b", "\u092a\u0930",
+                    "\u0914\u0930", "\u092f\u093e", "\u0925\u093e",
+                    "\u0925\u0940", "\u0925\u0947", "\u0939\u094b",
+                    "\u0939\u0941\u0906", "\u0939\u0941\u0908",
+                    "\u092f\u0939", "\u0935\u0939", "\u091c\u094b",
+                    "\u0924\u094b", "\u092d\u0940", "\u0928\u0947"));
+
+    /** Lowercase, punctuation stripped, single spaces (keeps Devanagari). */
+    private static String normalizeAnswer(String s) {
+        if (s == null) return "";
+        String n = s.toLowerCase(java.util.Locale.ROOT);
+        n = n.replaceAll("[^\\p{L}\\p{N} ]", " ");
+        return n.replaceAll("\\s+", " ").trim();
+    }
+
+    /** Significant words of an expected answer: content words and numbers. */
+    private static List<String> significantWords(String normalized) {
+        List<String> out = new ArrayList<>();
+        if (normalized == null || normalized.isEmpty()) return out;
+        for (String w : normalized.split(" ")) {
+            if (w.isEmpty() || STOPWORDS.contains(w)) continue;
+            boolean number = true;
+            for (int i = 0; i < w.length(); i++) {
+                if (!Character.isDigit(w.charAt(i))) {
+                    number = false;
+                    break;
+                }
+            }
+            if (number || w.length() >= 3) out.add(w);
+        }
+        return out;
+    }
+
+    /**
+     * Judges a spoken answer against the expected answer. True when the
+     * spoken text matches (same text), contains the expected answer (or a
+     * real phrase of it), or shares at least 60% of the expected answer's
+     * significant words. Tolerant of word order, extra words and small
+     * speech-recognition slips; strict enough that a different answer
+     * does not pass.
+     */
+    public static boolean judgeAnswer(String spoken, String expected) {
+        String s = normalizeAnswer(spoken);
+        String e = normalizeAnswer(expected);
+        if (s.isEmpty() || e.isEmpty()) return false;
+        if (s.equals(e)) return true;
+        // substring: the shorter side must be a real phrase (>= 4 chars),
+        // so a stray "the" or "a" never counts as a match
+        String shorter = s.length() <= e.length() ? s : e;
+        String longer = s.length() <= e.length() ? e : s;
+        if (shorter.length() >= 4 && longer.contains(shorter)) return true;
+        // word overlap on the expected answer's significant words
+        List<String> eWords = significantWords(e);
+        if (eWords.isEmpty()) return false;
+        java.util.Set<String> sSet = new java.util.HashSet<>(
+                java.util.Arrays.asList(s.split(" ")));
+        int hit = 0;
+        for (String w : eWords) {
+            if (sSet.contains(w)) hit++;
+        }
+        return hit * 1.0 / eWords.size() >= 0.6;
     }
 
     // -------------------------------------------------------------- questions

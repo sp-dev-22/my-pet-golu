@@ -357,6 +357,41 @@ public class AppDb extends SQLiteOpenHelper {
         }
     }
 
+    /**
+     * The pair a message belongs to, for multi-select delete: a user
+     * message is its own pair key; an AI message belongs to the user
+     * message right before it (or to itself when it has no user message
+     * before it, e.g. a Practice question). Two messages share a pair key
+     * exactly when deleteMessagePair would delete them together.
+     */
+    public static long pairKey(List<Msg> msgs, int position) {
+        if (msgs == null || position < 0 || position >= msgs.size()) return -1;
+        Msg m = msgs.get(position);
+        if (ROLE_USER.equals(m.role)) return m.id;
+        if (position - 1 >= 0 && ROLE_USER.equals(msgs.get(position - 1).role)) {
+            return msgs.get(position - 1).id;
+        }
+        return m.id;
+    }
+
+    /** Deletes every message belonging to any of the given pair keys. */
+    public void deletePairs(long chatId, java.util.Set<Long> pairKeys) {
+        if (pairKeys == null || pairKeys.isEmpty()) return;
+        List<Msg> all = listMessages(chatId);
+        SQLiteDatabase db = getWritableDatabase();
+        for (int i = 0; i < all.size(); i++) {
+            if (pairKeys.contains(pairKey(all, i))) {
+                db.delete("messages", "id=?", new String[]{String.valueOf(all.get(i).id)});
+            }
+        }
+    }
+
+    /** Deletes all messages in a chat (the chat itself stays). */
+    public void deleteAllMessages(long chatId) {
+        getWritableDatabase().delete("messages", "chat_id=?",
+                new String[]{String.valueOf(chatId)});
+    }
+
     private static Msg msgFromCursor(Cursor c) {
         Msg m = new Msg();
         m.id = c.getLong(c.getColumnIndexOrThrow("id"));

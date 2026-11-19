@@ -59,6 +59,12 @@ public class ConversationActivity extends Activity {
     private TextView micButton;
     private EditText input;
     private TextView attachChip;
+    private LinearLayout selectionBar;
+    private TextView deleteSelectedBtn;
+
+    // message selection (delete several pairs at once)
+    private boolean selectionMode = false;
+    private final java.util.Set<Long> selectedPairs = new java.util.HashSet<>();
 
     private final List<UserDb.UserFile> attachedFiles = new ArrayList<>();
     private final List<AiDb.Item> attachedItems = new ArrayList<>();
@@ -79,7 +85,7 @@ public class ConversationActivity extends Activity {
         setContentView(buildUi());
 
         pet.setLook(Prefs.getPalette(this), Prefs.getGender(this),
-                Prefs.getOutfit(this), Prefs.getAccessory(this));
+                Prefs.getOutfit(this), Prefs.getAccessory(this), Prefs.getClothesColor(this));
 
         voice = new GoluVoice(this);
         voice.initTts(Prefs.getTtsLocale(this), null);
@@ -144,6 +150,9 @@ public class ConversationActivity extends Activity {
         list.setDivider(null);
         list.setDividerHeight(0);
         list.setPadding(Ui.dp(this, 8), Ui.dp(this, 4), Ui.dp(this, 8), Ui.dp(this, 4));
+        TextView listEmpty = Ui.empty(this,
+                "No messages yet\nSay hello to Golu to start talking");
+        list.setEmptyView(listEmpty);
         list.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
             @Override
             public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
@@ -152,8 +161,17 @@ public class ConversationActivity extends Activity {
                 return true;
             }
         });
+        list.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                if (selectionMode && position >= 0 && position < messages.size()) {
+                    togglePair(AppDb.pairKey(messages, position));
+                }
+            }
+        });
         root.addView(list, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(listEmpty, Ui.matchWrap());
 
         // toggles row
         LinearLayout toggles = new LinearLayout(this);
@@ -290,6 +308,31 @@ public class ConversationActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         root.addView(bar, Ui.matchWrap());
+
+        // selection bar (delete several message pairs at once)
+        selectionBar = new LinearLayout(this);
+        selectionBar.setOrientation(LinearLayout.HORIZONTAL);
+        selectionBar.setBackgroundColor(Ui.PANEL);
+        selectionBar.setGravity(Gravity.CENTER);
+        selectionBar.setPadding(Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8));
+        selectionBar.setVisibility(View.GONE);
+        deleteSelectedBtn = Ui.button(this, "Delete (0)", Ui.RED);
+        deleteSelectedBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                deleteSelected();
+            }
+        });
+        selectionBar.addView(deleteSelectedBtn, chipLp());
+        TextView cancelSel = Ui.button(this, "Cancel", Ui.MUTED);
+        cancelSel.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                exitSelectionMode();
+            }
+        });
+        selectionBar.addView(cancelSel, chipLp());
+        root.addView(selectionBar, Ui.matchWrap());
         return root;
     }
 
@@ -323,7 +366,7 @@ public class ConversationActivity extends Activity {
     }
 
     private void showMessageMenu(final AppDb.Msg m) {
-        final String[] items = {"Copy", "Delete pair"};
+        final String[] items = {"Copy", "Delete pair", "Select pairs", "Clear whole chat"};
         new AlertDialog.Builder(this)
                 .setTitle("Message")
                 .setItems(items, new DialogInterface.OnClickListener() {
@@ -336,13 +379,80 @@ public class ConversationActivity extends Activity {
                                 cm.setPrimaryClip(ClipData.newPlainText("Golu message", m.text));
                                 Ui.toast(ConversationActivity.this, "Copied");
                             }
-                        } else {
+                        } else if (which == 1) {
                             db.deleteMessagePair(chat.id, m.id);
                             refreshTranscript();
+                        } else if (which == 2) {
+                            enterSelectionMode(AppDb.pairKey(messages, messages.indexOf(m)));
+                        } else {
+                            clearWholeChat();
                         }
                     }
                 })
                 .show();
+    }
+
+    // ------------------------------------------------- message selection
+
+    /** Starts multi-select delete with the long-pressed pair pre-selected. */
+    private void enterSelectionMode(long pairKey) {
+        selectionMode = true;
+        selectedPairs.clear();
+        if (pairKey >= 0) selectedPairs.add(pairKey);
+        selectionBar.setVisibility(View.VISIBLE);
+        updateSelectionBar();
+    }
+
+    private void exitSelectionMode() {
+        selectionMode = false;
+        selectedPairs.clear();
+        selectionBar.setVisibility(View.GONE);
+        adapter.notifyDataSetChanged();
+    }
+
+    private void togglePair(long pairKey) {
+        if (pairKey < 0) return;
+        if (selectedPairs.contains(pairKey)) selectedPairs.remove(pairKey);
+        else selectedPairs.add(pairKey);
+        updateSelectionBar();
+    }
+
+    private void updateSelectionBar() {
+        deleteSelectedBtn.setText("Delete (" + selectedPairs.size() + ")");
+        adapter.notifyDataSetChanged();
+    }
+
+    /** Deletes the selected pairs (each pair = one user message + its AI reply). */
+    private void deleteSelected() {
+        if (selectedPairs.isEmpty()) {
+            exitSelectionMode();
+            return;
+        }
+        final java.util.Set<Long> keys = new java.util.HashSet<>(selectedPairs);
+        Ui.confirm(this, "Delete selected?",
+                "Delete " + keys.size() + " selected pair" + (keys.size() == 1 ? "" : "s") + "?",
+                new Ui.ConfirmCallback() {
+                    @Override
+                    public void onYes() {
+                        db.deletePairs(chat.id, keys);
+                        exitSelectionMode();
+                        refreshTranscript();
+                    }
+                });
+    }
+
+    /** Deletes every message in this chat (the Talk chat itself stays). */
+    private void clearWholeChat() {
+        Ui.confirm(this, "Clear whole chat?",
+                "All Talk messages will be deleted.",
+                new Ui.ConfirmCallback() {
+                    @Override
+                    public void onYes() {
+                        db.deleteAllMessages(chat.id);
+                        exitSelectionMode();
+                        refreshTranscript();
+                    }
+                });
     }
 
     private class MsgAdapter extends BaseAdapter {
@@ -365,6 +475,8 @@ public class ConversationActivity extends Activity {
         public View getView(int position, View convertView, ViewGroup parent) {
             AppDb.Msg m = messages.get(position);
             boolean mine = AppDb.ROLE_USER.equals(m.role);
+            boolean selected = selectionMode
+                    && selectedPairs.contains(AppDb.pairKey(messages, position));
 
             LinearLayout row = new LinearLayout(ConversationActivity.this);
             row.setOrientation(LinearLayout.HORIZONTAL);
@@ -372,7 +484,7 @@ public class ConversationActivity extends Activity {
                     0, Ui.dp(ConversationActivity.this, 3));
 
             TextView bubble = new TextView(ConversationActivity.this);
-            bubble.setText(m.text);
+            bubble.setText((selected ? "\u2611 " : selectionMode ? "\u2610 " : "") + m.text);
             bubble.setTextSize(14f);
             bubble.setTextColor(Ui.INK);
             bubble.setPadding(Ui.dp(ConversationActivity.this, 12),
@@ -380,7 +492,8 @@ public class ConversationActivity extends Activity {
                     Ui.dp(ConversationActivity.this, 12),
                     Ui.dp(ConversationActivity.this, 9));
             bubble.setBackground(Ui.pill(ConversationActivity.this,
-                    mine ? Ui.BUBBLE_USER : Ui.BUBBLE_AI, Ui.LINE, 14));
+                    selected ? Ui.BUBBLE_SELECTED : (mine ? Ui.BUBBLE_USER : Ui.BUBBLE_AI),
+                    Ui.LINE, 14));
             LinearLayout.LayoutParams bubbleLp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             bubbleLp.weight = 0;
