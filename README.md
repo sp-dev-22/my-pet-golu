@@ -1,5 +1,7 @@
 # Golu Study Buddy
 
+**Version 0.6.0** — your study buddy.
+
 Golu is a study buddy, not just a pet. He lives on your home screen -
 drawn entirely with Canvas code, no image assets - and is powered by
 Google Gemini: chat with him, turn your PDFs into quizzes, notes and one-liners,
@@ -9,29 +11,38 @@ and let him practise with you out loud.
 
 - **Home** - Golu as your companion, fully visible above the buttons. The
   Buddy button swaps the home buttons in place for the Look panel (10 body
-  colours, boy / girl mode with 6 outfits each, 5 accessories) - no separate
-  screen to open and close. Main goal: learning without boredom.
+  colours, boy / girl mode with 6 outfits each, 10 clothes colours, 5
+  accessories) - no separate screen to open and close. He breathes, blinks
+  and looks around while idle, and smiles when you tap him. Main goal:
+  learning without boredom.
 - **Chats (AI agent)** - multiple chats with Gemini. Each chat has its own
   model (changeable any time, even mid-chat) and one or more skills (system
   prompts, combined when calling Gemini). Attach up to 10 files at once from
   your folders and the Library, with a folder-grouped picker and search.
-  AI voice is always off here.
+  AI voice is always off here. Long-press a message to copy it, save it to
+  the Library, delete one pair, select several pairs to delete at once, or
+  clear the whole chat.
 - **Talk** - one persistent voice chat with Golu. Speak or type, Golu
   replies out loud with lip-sync. Mic, voice replies and speech input can each
   be switched on or off. Attach up to 3 files from folders or the Library.
   Uses the light conversation model. The compact header leaves most of the
-  screen for chatting.
+  screen for chatting. Long-press a message to manage it, like in Chats.
 - **Practice** - offline voice practice with Library items (made in agent
-  chats) - nothing is created here. Four modes: **Quiz** (Golu asks each
-  question aloud, speaks the four options, then listens for your answer
-  until your set time runs out; answer by voice or tap, and he tells you
-  right or wrong with the correct answer and explanation); **Flashcards**
-  (Golu reads the front, you recall, then reveal the back and mark
-  Knew/Missed); **One-liners** (Golu reads each line, you mark Knew/Missed);
-  **Questions** (Golu asks, you answer aloud, then see the answer and mark
-  yourself). Voice and speech input are always on here. The mic works in
-  Auto mode (listens on its own) or Tap mode (tap Speak to answer), and it
-  keeps listening for the whole answer time instead of cutting off early.
+  chats) - nothing is created here. All four modes play quiz-style:
+  sequential items, Golu speaks each one, you answer by voice or tap,
+  immediate spoken right/wrong feedback, running score and a finish
+  summary - and Buddy jumps for joy when you are right and droops when
+  you are wrong. **Quiz** (Golu asks each question aloud, speaks the four
+  options, then listens for your answer until your set time runs out;
+  answer by voice or tap, and he tells you right or wrong with the
+  correct answer and explanation); **Flashcards** (Golu reads the front,
+  you say the back out loud and he judges your answer - or tap Show answer
+  and mark Knew/Missed); **One-liners** (Golu reads each line, you say it
+  back and he judges your recall - or mark Knew/Missed); **Questions**
+  (Golu asks, you answer aloud and he judges it, or reveal the answer and
+  mark yourself). Voice and speech input are always on here. The mic works
+  in Auto mode (listens on its own) or Tap mode (tap Speak to answer), and
+  it keeps listening for the whole answer time instead of cutting off early.
   No API calls while practising. Golu's lips move while he speaks, and
   markdown artefacts (*, #, % and the like) are cleaned out of the spoken
   text so he sounds natural.
@@ -50,10 +61,11 @@ and let him practise with you out loud.
   Export / Import folders and files as JSON (list only), PDF or ZIP
   (ZIP includes the actual files).
 - **Skills** - custom system prompts. Built in: **Quiz Maker** (returns a JSON
-  quiz the app can play), **One Liner Maker** (crisp revision lines),
-  **Questions Asker** (practice questions with answers and explanations).
-  Make your own skills too and pick several per chat. Export / Import skills
-  as JSON, PDF or ZIP.
+  quiz the app can play), **Flashcard Maker** (returns a JSON set of
+  front/back cards), **One Liner Maker** (returns a JSON list of crisp
+  revision lines), **Questions Asker** (practice questions with answers and
+  explanations). Make your own skills too and pick several per chat.
+  Export / Import skills as JSON, PDF or ZIP.
 - **Memory** - facts Golu remembers about you, now one tap from Home. When
   enabled, they are added to every chat's system prompt. "Suggest from chats"
   uses the background model to propose new facts. Export / Import memories
